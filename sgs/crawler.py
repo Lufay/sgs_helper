@@ -15,6 +15,7 @@ class Text(str):
         self.__name__ = name
         self.attrs = kwargs
 
+    # @classproperty(1)
     @classmethod
     @property
     def local_subclasses(cls):
@@ -83,9 +84,9 @@ class UList(GeneralBlock):
 
     def __str__(self) -> str:
         if self.__name__ == 'ul':
-            return '\n'.join(f'{c}  ' for c in self.contents)
+            return '\n'.join(f'{self.leader}{c}  ' for c in self.contents)
         else:
-            return ''.join(f'{self.leader} {str(c)}' for c in self.contents)
+            return ' '.join(str(c) for c in self.contents)
 
 
 def crawl(name):
@@ -117,6 +118,7 @@ def recur_node(node:Tag):
                 block_cont = ''.join(block.stripped_strings)
                 if any(map(lambda x: x in block_cont, ('国战', '自走棋', '皮肤', '秀'))):
                     break
+                yield Text(block_cont, 'pack')
             case _:
                 try:
                     yield GeneralBlock(block.name, recur_node(block), block.get('class', ()))

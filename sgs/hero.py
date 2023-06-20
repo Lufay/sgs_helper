@@ -4,7 +4,7 @@ from dataclasses import Field, dataclass, field, fields
 from typing import List, Optional
 from functools import cached_property
 
-from .crawler import crawl, Img, GeneralBlock
+from .crawler import crawl, Img, GeneralBlock, Text, UList
 
 class Camp(Enum):
     def __init__(self, value, zn_name):
@@ -28,9 +28,11 @@ class Camp(Enum):
 
 @dataclass
 class Hero:
-    pack: str = field(metadata={'alias': '武将包'})
+    pack: str
     name: str
+    biligame_key: str = ''
     title: str = ''
+    detail_pack: str = field(default='', metadata={'alias': '武将包'})
     contents: List[str] = field(default_factory=list)
     hp: int = field(default=0, metadata={'alias': '勾玉', 'val_trans': int})
     hp_max: int = 0
@@ -44,19 +46,43 @@ class Hero:
         
     def crawl_by_name(self):
         not_p_header = True
-        for line in crawl(self.name):
+        for line in crawl(self.biligame_key if self.biligame_key else self.name):
             if line and isinstance(line, GeneralBlock):
                 if not_p_header:
                     not_p_header = self.parse_header(line)
-                else:
-                    self.parse_module(line)
+                elif not self.parse_module(line):
+                    break
+        return self
+    
+    @property
+    def skill_str(self) -> str:
+        return self.to_str(self.skills)
+    
+    @property
+    def lines_str(self) -> str:
+        return self.to_str(self.lines)
+
+    @staticmethod
+    def to_str(lists):
+        secs = []
+        sec = []
+        for item in lists:
+            if isinstance(item, list):
+                if sec:
+                    secs.append(UList('li', sec))
+                    sec = []
+                sec.append(Text(''.join(item), 'b'))
+            else:
+                sec.append(item)
+        secs.append(UList('li', sec))
+        return str(UList('ul', secs))
 
     @cached_property
     def alias_mapper(self):
         return {md.get('alias'):fd for fd in fields(self) if (md := fd.metadata)}
     
     def alias_matcher(self, sline):
-        if hasattr(self, 'hit_alias') and self.hit_alias in sline:
+        if hasattr(self, 'hit_alias') and self.hit_alias == sline:
             return
         match getattr(self, 'key', None):
             case 'author':
@@ -74,16 +100,14 @@ class Hero:
                 for alias, fd in self.alias_mapper.items():
                     if alias in sline:
                         self.key = fd
-                        self.hit_alias = alias
+                        self.hit_alias = sline
                         self.anchor = Anchor(fd.metadata.get('anchor_num', -1),
                                              getattr(self, fd.name),
                                              fd.metadata.get('sections'))
                         break
     
     def clear_alias_key(self):
-        del self.key, self.hit_alias
-        if hasattr(self, 'anchor'):
-            del self.anchor
+        del self.key, self.hit_alias, self.anchor
 
     def parse_header(self, headers):
         skip = True
@@ -94,6 +118,8 @@ class Hero:
                 if '武将称号' in sline:
                     skip = False
                     self.title = sline.removeprefix('武将称号：')
+                elif isinstance(line, Text) and line.__name__ == 'pack':
+                    return False
                 else:
                     self.alias_matcher(sline)
             elif isinstance(line, GeneralBlock):
@@ -105,29 +131,41 @@ class Hero:
             if not line:
                 continue
             if isinstance(line, str) and (sline := line.strip()):
+                if isinstance(line, Text) and line.__name__ == 'pack':
+                    if ('界' in self.pack) != ('界' in line):
+                        return True
                 self.alias_matcher(sline)
             elif isinstance(line, GeneralBlock):
-                with getattr(self, 'anchor', Anchor.nop())(line.classes, self.clear_alias_key):
-                    self.parse_module(line)
+                with getattr(self, 'anchor', Anchor.get_ins())(line.classes, self.clear_alias_key):
+                    if self.parse_module(line):
+                        return True
             elif isinstance(line, Img):
                 if '形象' in line.alt:
                     self.image = line
                     self.key = 'author'
                     self.hit_alias = '形象'
+                    self.anchor = Anchor()
                 else:
                     self.alias_matcher(line.alt.strip())
 
 
-@dataclass
 class Anchor:
-    level: int
-    stack: list
-    sections: list
-    sec_idx: int = -1
-
-    def __post_init__(self):
-        if self.sections:
-            self.sec_idx = 0
+    _ins = None
+    
+    def __new__(cls, *args, **kwargs):
+        return cls.get_ins()
+    
+    @classmethod
+    def get_ins(cls):
+        if cls._ins is None:
+            cls._ins = object.__new__(cls)
+        return cls._ins
+    
+    def __init__(self, level=-1, stack=None, sections=None):
+        self.level = level
+        self.stack = stack
+        self.sections = sections
+        self.sec_idx = 0 if self.sections else -1
 
     @contextmanager
     def __call__(self, classes, cf):
@@ -141,14 +179,10 @@ class Anchor:
                 ori_stack.append(self.stack)
                 self.sec_idx += 1
         yield
-        if self.level > 0:
+        if self.level >= 0:
             self.level -= 1
             if ori_stack:
                 self.stack = ori_stack
                 self.sec_idx -= 1
-        elif self.level == 0:
-            cf()
-
-    @classmethod
-    def nop(cls):
-        return cls(-1, None, None)
+            if self.level < 0:
+                cf()

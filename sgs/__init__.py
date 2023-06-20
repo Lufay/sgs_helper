@@ -1,6 +1,7 @@
 
 from dataclasses import dataclass, field
 from functools import cached_property
+import json
 import re
 from typing import List
 
@@ -9,7 +10,7 @@ from mistletoe.ast_renderer import get_ast
 
 from .crawler import Text
 from .hero import Hero
-
+from common import root_path
 
 @dataclass
 class HeroMgr:
@@ -22,12 +23,14 @@ class HeroMgr:
     VALID_HEADING = '武将牌'
     MONARCH_TAG = '主公技'
     HP_PATTERN = re.compile(r'HP=(\d+)(?:/(\d+))?')
+    KEY_PATTERN = re.compile(r'biligame_key:\s*([^\s]+)')
 
     @classmethod
     def load(cls, file_path):
         with open(file_path) as fin:
             doc = mistletoe.Document(fin)
             struct = get_ast(doc)
+            (root_path / 'page_cache/md.json').write_text(json.dumps(struct))
             mgr = cls()
             for node in struct['children']:
                 mgr.process_node(node)
@@ -81,6 +84,9 @@ class HeroMgr:
                 if not hero.hp_max and hero.hp:
                     hero.hp_max = hero.hp
                 return
+            elif m := self.KEY_PATTERN.match(raw_line):
+                hero.biligame_key = m.group(1)
+                return
             if self.MONARCH_TAG in raw_line:
                 self.heros[-1].is_monarch = True
             lines.append(self.line_prefix + raw_line)
@@ -108,13 +114,12 @@ class HeroMgr:
                 self.process_node(child)
             self.line_prefix = ''
 
-
     # @cached_property
     # def packs(self):
     #     return {hero.pack for hero in self.heroes}
 
     def search(self, name, pack='*'):
-        return [hero for hero in self.heros
+        return [hero.crawl_by_name() for hero in self.heros
                if (pack == '*' or pack in hero.pack) and
                name in hero.name
                ]

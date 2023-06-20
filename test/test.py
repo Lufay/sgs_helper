@@ -15,14 +15,15 @@ def test_robot(cmd):
     print(resp.text)
 
 
-def test_hero_mgr():
+def test_hero_mgr(name):
     from sgs import HeroMgr
     mgr = HeroMgr.load(conf['Local']['MarkDownPath'])
     print(len(mgr.heros))
     print(mgr.monarchs)
-    roles = mgr.search('刘备')
-    roles[0].crawl_by_name()
-    print(roles, roles[0].image.author)
+    roles = mgr.search(name)
+    for role in roles:
+        role.crawl_by_name()
+        print(role, role.image.author)
 
 
 if __name__ == '__main__':
@@ -30,4 +31,4 @@ if __name__ == '__main__':
     # test_robot('roll master')
     # test_robot('roll hero 3')
     test_robot('关羽')
-    # test_hero_mgr()
+    # test_hero_mgr('关羽')

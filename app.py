@@ -62,13 +62,23 @@ def get_content_dict(content, at):
         }
     elif isinstance(content, Hero):
         hp = f' {content.hp}/{content.hp_max}' if content.hp else ''
-        conts = (f'<at id="">{at}</at>', *content.contents) if at else content.contents
+        conts = []
+        if at:
+            conts.append(f'<at id="">{at}</at>')
+        conts.extend([
+            f'性别: {content.gender}',
+            f'势力: {content.camp.zn_name}',
+            f'定位: {content.position}',
+            f'技能:  \n {content.skill_str}',
+            *content.contents,
+            f'台词:  \n {content.lines_str}',
+        ])
         return {
             'msg_type': 'interactive',
             'card': {
                 'header': {
                     'title': {
-                        'content': f'{content.pack} {content.name}{hp}',
+                        'content': f'{content.pack} {content.name}{hp} {content.title}',
                         'tag': "plain_text"
                     }
                 },

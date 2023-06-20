@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from enum import Enum, auto
 from dataclasses import Field, dataclass, field, fields
 from typing import List, Optional
@@ -31,7 +32,7 @@ class Hero:
     name: str
     title: str = ''
     contents: List[str] = field(default_factory=list)
-    hp: int = 0
+    hp: int = field(default=0, metadata={'alias': '勾玉', 'val_trans': int})
     hp_max: int = 0
     image: Optional[Img] = None
     gender: str = field(default='', metadata={'alias': '性别'})
@@ -55,30 +56,34 @@ class Hero:
         return {md.get('alias'):fd for fd in fields(self) if (md := fd.metadata)}
     
     def alias_matcher(self, sline):
+        if hasattr(self, 'hit_alias') and self.hit_alias in sline:
+            return
         match getattr(self, 'key', None):
             case 'author':
                 self.image.author = sline
-                del self.key
-            case 'hp':
-                self.hp = int(sline)
+                self.clear_alias_key()
             case Field() as fd:
                 if func := fd.metadata.get('val_trans'):
                     sline = func(sline)
-                if getattr(self, 'anchor_num', -1) >= 0:
-                    self.sec_list.append(sline)
+                if hasattr(self, 'anchor') and self.anchor.level >= 0:
+                    self.anchor.stack.append(sline)
                 else:
                     setattr(self, fd.name, sline)
-                    del self.key
+                    self.clear_alias_key()
             case _:
                 for alias, fd in self.alias_mapper.items():
                     if alias in sline:
                         self.key = fd
-                        if (an := fd.metadata.get('anchor_num', -1)) >= 0:
-                            self.anchor_num = an
-                            self.sec_list = getattr(self, fd.name)
-                            if 'sections' in fd.metadata:
-                                self.sec_idx = 0
+                        self.hit_alias = alias
+                        self.anchor = Anchor(fd.metadata.get('anchor_num', -1),
+                                             getattr(self, fd.name),
+                                             fd.metadata.get('sections'))
                         break
+    
+    def clear_alias_key(self):
+        del self.key, self.hit_alias
+        if hasattr(self, 'anchor'):
+            del self.anchor
 
     def parse_header(self, headers):
         skip = True
@@ -102,37 +107,48 @@ class Hero:
             if isinstance(line, str) and (sline := line.strip()):
                 self.alias_matcher(sline)
             elif isinstance(line, GeneralBlock):
-                ori_list = None
-                if hasattr(self, 'anchor_num'):
-                    self.anchor_num += 1
-                    if hasattr(self, 'sec_idx') and \
-                        self.sec_idx < len(sections := self.key.metadata.get('sections')) and \
-                            sections[self.sec_idx] in line.classes:
-                        ori_list = self.sec_list
-                        self.sec_list = []
-                        ori_list.append(self.sec_list)
-                        self.sec_idx += 1
-                self.parse_module(line)
-                if hasattr(self, 'anchor_num'):
-                    if self.anchor_num > 0:
-                        self.anchor_num -= 1
-                        if ori_list:
-                            self.sec_list = ori_list
-                            self.sec_idx -= 1
-                    else:
-                        del self.anchor_num, self.key
-                        if hasattr(self, 'sec_idx'):
-                            del self.sec_idx
+                with getattr(self, 'anchor', Anchor.nop())(line.classes, self.clear_alias_key):
+                    self.parse_module(line)
             elif isinstance(line, Img):
-                if '勾玉' in line.alt:
-                    self.key = 'hp'
-                elif '形象' in line.alt:
+                if '形象' in line.alt:
                     self.image = line
                     self.key = 'author'
+                    self.hit_alias = '形象'
+                else:
+                    self.alias_matcher(line.alt.strip())
 
 
 @dataclass
 class Anchor:
     level: int
     stack: list
+    sections: list
     sec_idx: int = -1
+
+    def __post_init__(self):
+        if self.sections:
+            self.sec_idx = 0
+
+    @contextmanager
+    def __call__(self, classes, cf):
+        ori_stack = None
+        if self.level >= 0:
+            self.level += 1
+            if 0 <= self.sec_idx < len(self.sections) and \
+                    self.sections[self.sec_idx] in classes:
+                ori_stack = self.stack
+                self.stack = []
+                ori_stack.append(self.stack)
+                self.sec_idx += 1
+        yield
+        if self.level > 0:
+            self.level -= 1
+            if ori_stack:
+                self.stack = ori_stack
+                self.sec_idx -= 1
+        elif self.level == 0:
+            cf()
+
+    @classmethod
+    def nop(cls):
+        return cls(-1, None, None)

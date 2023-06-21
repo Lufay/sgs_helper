@@ -8,12 +8,47 @@ from flask import Flask, request
 import requests
 
 from common import conf
+from utils.router import route, route_todo, MatchType as MT
 
 app = Flask(__name__)
 
 from sgs import HeroMgr, Hero
 hero_mgr = HeroMgr.load(conf['Local']['MarkDownPath'])
 
+@route('我是谁', MT.KEYWORD)
+def whoami(content, sender='unknown'):
+    if sender == 'unknown':
+        robot('我不知道')
+    else:
+        robot(sender)
+    return sender
+
+
+@route('roll master', MT.PREFIX)
+def rollmaster(content, sender=None):
+    try:
+        n = int(content)
+    except ValueError:
+        n = 2
+    robot(', '.join(random.sample(hero_mgr.monarchs, n)), sender)
+    return n
+
+
+@route('roll hero', MT.PREFIX)
+def rollhero(content, sender=None):
+    try:
+        n = int(content)
+        robot(', '.join(random.sample(hero_mgr.all_heros, n)), sender)
+        return n
+    except ValueError:
+        robot(random.choice(hero_mgr.heros).crawl_by_name(), sender)
+        return 1
+    
+@route(lambda cmd: (len(cs := cmd.split(' ')) < 3, cs), MT.TEST)
+def search_hero(cmd, ctx):
+    for hero in hero_mgr.search(*ctx[0]):
+        robot(hero)
+    return ctx[0][0]
 
 @app.route('/sgs/hero', methods=['GET', 'POST'])
 def hero_main():
@@ -24,32 +59,10 @@ def hero_main():
         print(request.form)
     else:
         print(request.values)
-    cmd = d.get('content', '')
-    if '我是谁' in cmd:
-        ret = d.get('sender', 'unknown')
-        if ret == 'unknown':
-            robot('我不知道')
-        else:
-            robot(ret)
-    elif cmd.startswith(ret := 'roll master'):
-        try:
-            n = int(cmd.removeprefix(ret))
-        except ValueError:
-            n = 2
-        robot(', '.join(random.sample(hero_mgr.monarchs, n)), d.get('sender', None))
-    elif cmd.startswith(ret := 'roll hero'):
-        try:
-            n = int(cmd.removeprefix(ret))
-            robot(', '.join(random.sample(hero_mgr.all_heros, n)), d.get('sender', None))
-        except ValueError:
-            robot(random.choice(hero_mgr.heros), d.get('sender', None))
-    elif len(cs := cmd.split(' ')) < 3:
-        ret = 'heros'
-        for hero in hero_mgr.search(*cs):
-            robot(hero)
-    else:
-        ret = 'note'
+    cmd = d.pop('content', '')
+    ret = route_todo(cmd, **d)
     return json.dumps({'success': True, 'message': ret})
+
 
 def get_content_dict(content, at):
     if isinstance(content, str):
@@ -70,7 +83,9 @@ def get_content_dict(content, at):
             f'势力: {content.camp.zn_name}',
             f'定位: {content.position}',
             f'技能:  \n {content.skill_str}',
+            '***',
             *content.contents,
+            '***',
             f'台词:  \n {content.lines_str}',
         ])
         return {
@@ -82,7 +97,7 @@ def get_content_dict(content, at):
                         'tag': "plain_text"
                     }
                 },
-                'elements': [
+                'elements': [{'tag': 'hr'} if cont == '***' else
                     {
                         'tag': 'div',
                         'text': {

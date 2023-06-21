@@ -45,13 +45,14 @@ class Hero:
     is_monarch: bool = False
         
     def crawl_by_name(self):
-        not_p_header = True
-        for line in crawl(self.biligame_key if self.biligame_key else self.name):
-            if line and isinstance(line, GeneralBlock):
-                if not_p_header:
-                    not_p_header = self.parse_header(line)
-                elif not self.parse_module(line):
-                    break
+        if not self.detail_pack:
+            not_p_header = True
+            for line in crawl(self.biligame_key if self.biligame_key else self.name):
+                if line and isinstance(line, GeneralBlock):
+                    if not_p_header:
+                        not_p_header = self.parse_header(line)
+                    elif not self.parse_module(line):
+                        break
         return self
     
     @property

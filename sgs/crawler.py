@@ -61,7 +61,7 @@ class Img:
 class GeneralBlock:
     BLACK_NAMES = {'style'}
     WHITE_NAMES = {'div', 'p', 'span', 'hr', 'h2', 'a', }
-    BLACK_CLASSES = {'btn', 'desc-color'}
+    BLACK_CLASSES = {'btn', 'desc-color', 'wiki-bot'}
     def __init__(self, name, contents, classes=()):
         if name in self.BLACK_NAMES or self.BLACK_CLASSES.intersection(classes):
             raise KeyError(name + str(classes))

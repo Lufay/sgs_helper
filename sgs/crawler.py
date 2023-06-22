@@ -59,7 +59,7 @@ class Img:
         return f'![{self.alt}]({self.img_src_set[self.DEFAULT_SRC]})'
 
 class GeneralBlock:
-    BLACK_NAMES = {'style'}
+    BLACK_NAMES = {'style', 'script'}
     WHITE_NAMES = {'div', 'p', 'span', 'hr', 'h2', 'a', }
     BLACK_CLASSES = {'btn', 'desc-color', 'wiki-bot'}
     def __init__(self, name, contents, classes=()):
@@ -89,6 +89,34 @@ class UList(GeneralBlock):
             return ' '.join(str(c) for c in self.contents)
 
 
+class Table(GeneralBlock):
+    WHITE_NAMES = {'table', 'thead', 'tbody', 'tr', 'th', 'td'}
+    def __init__(self, name, contents):
+        super().__init__(name, contents)
+        if name == 'table':
+            self.headers = []
+            self.records = []
+            self.record = []
+            self.iter_children(contents)
+
+    def iter_children(self, children):
+        for cont in children:
+            match cont:
+                case Table(__name__='thead') | Table(__name__='tbody'):
+                    self.iter_children(cont.contents)
+                case Table(__name__='tr'):
+                    if self.record:
+                        self.records.append(self.record)
+                        self.record = []
+                    self.iter_children(cont.contents)
+                case Table(__name__='th'):
+                    self.headers.append(cont.contents)
+                case Table(__name__='td'):
+                    self.record.append(cont.contents)
+        if self.record:
+            self.records.append(self.record)
+
+
 def crawl(name):
     f = root_path / f'page_cache/{name}.html'
     if f.is_file():
@@ -114,6 +142,8 @@ def recur_node(node:Tag):
                 yield Img(block)
             case Tag(name='li') | Tag(name='ul'):
                 yield UList(block.name, recur_node(block))
+            case Tag(name='table') | Tag(name='thead') | Tag(name='tbody') | Tag(name='tr') | Tag(name='th') | Tag(name='td'):
+                yield Table(block.name, recur_node(block))
             case Tag(name='div') if '锚点' in block.get('class', ()):
                 block_cont = ''.join(block.stripped_strings)
                 if any(map(lambda x: x in block_cont, ('国战', '自走棋', '皮肤', '秀'))):

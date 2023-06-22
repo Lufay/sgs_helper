@@ -32,6 +32,6 @@ if __name__ == '__main__':
     # test_robot('我是谁')
     # test_robot('roll master')
     # test_robot('roll hero 5')
-    test_robot('张宝')
+    # test_robot('张宝')
     # test_robot('win 5人身份+魏延')
-    # test_hero_mgr('袁术')
+    test_hero_mgr('孙亮')

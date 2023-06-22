@@ -23,7 +23,9 @@ class HeroMgr:
     VALID_HEADING = '武将牌'
     MONARCH_TAG = '主公技'
     HP_PATTERN = re.compile(r'HP=(\d+)(?:/(\d+))?')
-    KEY_PATTERN = re.compile(r'biligame_key:\s*([^\s]*)$')
+    str_patterns = {fd_name: re.compile(md_key + r':\s*([^\s]*)$')
+        for fd_name, md_key in Hero.md_fields.items()
+    }
 
     @classmethod
     def load(cls, file_path):
@@ -84,9 +86,11 @@ class HeroMgr:
                 if not hero.hp_max and hero.hp:
                     hero.hp_max = hero.hp
                 return
-            elif m := self.KEY_PATTERN.match(raw_line):
-                hero.biligame_key = m.group(1)
-                return
+            else:
+                for fd_name, pattern in self.str_patterns.items():
+                    if m := pattern.match(raw_line):
+                        setattr(hero, fd_name, m.group(1))
+                        return
             if self.MONARCH_TAG in raw_line:
                 self.heros[-1].is_monarch = True
             lines.append(self.line_prefix + raw_line)

@@ -1,10 +1,11 @@
 from contextlib import contextmanager
-from enum import Enum, auto
+from enum import Enum
 from dataclasses import Field, dataclass, field, fields
 from typing import List, Optional
 from functools import cached_property
 
-from .crawler import crawl, Img, GeneralBlock, Text, UList
+from .crawler import crawl, Img, GeneralBlock, Text, UList, Table
+from utils import classproperty
 
 class Camp(Enum):
     UNKNOWN = '未知'
@@ -26,7 +27,8 @@ class Camp(Enum):
 class Hero:
     pack: str
     name: str
-    biligame_key: str = ''
+    biligame_key: str = field(default='', metadata={'md_key': ''})
+    biligame_skill_ver: str = field(default='', metadata={'md_key': ''})
     title: str = ''
     detail_pack: str = field(default='', metadata={'alias': '武将包'})
     contents: List[str] = field(default_factory=list)
@@ -39,6 +41,12 @@ class Hero:
     lines: List[str] = field(default_factory=list, metadata={'alias': '台词', 'anchor_num': 1, 'sections': ['basic-info-row-label']})
     position: List[str] = field(default_factory=list, metadata={'alias': '定位', 'anchor_num': 1})
     is_monarch: bool = False
+
+    @classproperty(1)
+    def md_fields(cls):
+        return {fd.name: md_key if md_key else fd.name
+                for fd in fields(cls)
+                if (md_key := fd.metadata.get('md_key')) is not None}
         
     def crawl_by_name(self):
         if not self.detail_pack and self.biligame_key != 'none':
@@ -76,7 +84,7 @@ class Hero:
 
     @cached_property
     def alias_mapper(self):
-        return {md.get('alias'):fd for fd in fields(self) if (md := fd.metadata)}
+        return {alias:fd for fd in fields(self) if (alias := fd.metadata.get('alias'))}
     
     def alias_matcher(self, sline):
         if hasattr(self, 'hit_alias') and self.hit_alias == sline:
@@ -131,7 +139,27 @@ class Hero:
                 if isinstance(line, Text) and line.__name__ == 'pack':
                     if ('界' in self.pack) != ('界' in line):
                         return True
+                elif sline == '历史版本':
+                    self.search_ver = True
+                    continue
+                elif getattr(self, 'search_ver', None):
+                    if sline == self.biligame_skill_ver:
+                        self.anchor.running = True
+                        self.search_ver = False
+                    continue
                 self.alias_matcher(sline)
+            elif isinstance(line, Table) and line.__name__ == 'table':
+                if hasattr(self, 'anchor') and self.anchor.level >= 0:
+                    self.anchor.running = False
+                self.parse_module(line.headers[0])
+                for row in line.records:
+                    self.parse_module(row[0])
+                if self.search_ver:
+                    del self.search_ver
+                    self.anchor.running = True
+                else:
+                    self.anchor = Anchor()
+                    self.clear_alias_key()
             elif isinstance(line, GeneralBlock):
                 with getattr(self, 'anchor', Anchor.get_ins())(line.classes, self.clear_alias_key):
                     if self.parse_module(line):
@@ -163,23 +191,27 @@ class Anchor:
         self.stack = stack
         self.sections = sections
         self.sec_idx = 0 if self.sections else -1
+        self.running = True
 
     @contextmanager
     def __call__(self, classes, cf):
-        ori_stack = None
-        if self.level >= 0:
-            self.level += 1
-            if 0 <= self.sec_idx < len(self.sections) and \
-                    self.sections[self.sec_idx] in classes:
-                ori_stack = self.stack
-                self.stack = []
-                ori_stack.append(self.stack)
-                self.sec_idx += 1
-        yield
-        if self.level >= 0:
-            self.level -= 1
-            if ori_stack:
-                self.stack = ori_stack
-                self.sec_idx -= 1
-            if self.level < 0:
-                cf()
+        if self.running:
+            ori_stack = None
+            if self.level >= 0:
+                self.level += 1
+                if 0 <= self.sec_idx < len(self.sections) and \
+                        self.sections[self.sec_idx] in classes:
+                    ori_stack = self.stack
+                    self.stack = []
+                    ori_stack.append(self.stack)
+                    self.sec_idx += 1
+            yield
+            if self.level >= 0:
+                self.level -= 1
+                if ori_stack:
+                    self.stack = ori_stack
+                    self.sec_idx -= 1
+                if self.level < 0:
+                    cf()
+        else:
+            yield

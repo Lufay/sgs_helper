@@ -7,23 +7,19 @@ from functools import cached_property
 from .crawler import crawl, Img, GeneralBlock, Text, UList
 
 class Camp(Enum):
-    def __init__(self, value, zn_name):
-        self._value_ = value
-        self.zn_name = zn_name
+    UNKNOWN = '未知'
+    SHU = '蜀'
+    WEI = '魏'
+    WU = '吴'
+    QUN = '群'
+    JIN = '晋'
 
     @classmethod
     def get_value(cls, zn_name):
-        for ev in cls:
-            if ev.zn_name == zn_name:
-                return ev
-        return cls.UNKNOWN
-            
-    UNKNOWN = (auto(), '未知')
-    SHU = (auto(), '蜀')
-    WEI = (auto(), '魏')
-    WU = (auto(), '吴')
-    QUN = (auto(), '群')
-    JIN = (auto(), '晋')
+        try:
+            return cls(zn_name)
+        except ValueError:
+            return cls.UNKNOWN
 
 
 @dataclass
@@ -45,7 +41,7 @@ class Hero:
     is_monarch: bool = False
         
     def crawl_by_name(self):
-        if not self.detail_pack:
+        if not self.detail_pack and self.biligame_key != 'none':
             not_p_header = True
             for line in crawl(self.biligame_key if self.biligame_key else self.name):
                 if line and isinstance(line, GeneralBlock):

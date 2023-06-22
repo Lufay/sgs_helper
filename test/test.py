@@ -23,12 +23,15 @@ def test_hero_mgr(name):
     roles = mgr.search(name)
     for role in roles:
         role.crawl_by_name()
-        print(role, role.image.author)
+        print(role)
+        if role.image:
+            print(role.image.author)
 
 
 if __name__ == '__main__':
     # test_robot('我是谁')
     # test_robot('roll master')
-    # test_robot('roll hero 3')
-    test_robot('关羽')
-    # test_hero_mgr('关羽')
+    # test_robot('roll hero 5')
+    test_robot('张宝')
+    # test_robot('win 5人身份+魏延')
+    # test_hero_mgr('袁术')

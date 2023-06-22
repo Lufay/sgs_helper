@@ -23,7 +23,7 @@ class HeroMgr:
     VALID_HEADING = '武将牌'
     MONARCH_TAG = '主公技'
     HP_PATTERN = re.compile(r'HP=(\d+)(?:/(\d+))?')
-    KEY_PATTERN = re.compile(r'biligame_key:\s*([^\s]+)')
+    KEY_PATTERN = re.compile(r'biligame_key:\s*([^\s]*)$')
 
     @classmethod
     def load(cls, file_path):

@@ -3,6 +3,8 @@ from flask import Flask, request
 
 import facade   # add facade don't remove it
 from utils.router import route_todo
+from biz.user import UserMgr
+from common import conf
 
 app = Flask(__name__)
 
@@ -21,4 +23,7 @@ def hero_main():
 
 
 if __name__ == '__main__':
-   app.run(debug = True)
+    try:
+        app.run(debug = True)
+    finally:
+        UserMgr.dump(conf['Local']['UserRcordPath'])

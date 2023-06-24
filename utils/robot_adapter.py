@@ -9,12 +9,12 @@ from sgs.hero import Hero
 
 
 def get_content_dict(content, at):
-    if isinstance(content, str):
+    if isinstance(content, (int, float, str)):
         at_str = f'<at user_id="">{at}</at> ' if at else ''
         return {
             'msg_type': 'text',
             'content': {
-                'text': at_str + content
+                'text': f'{at_str}{content}'
             }
         }
     elif isinstance(content, Hero):

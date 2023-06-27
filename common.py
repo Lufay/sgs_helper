@@ -1,10 +1,15 @@
 from configparser import ConfigParser
+import logging.config
 from pathlib import Path
 
 root_path = Path(__file__).parent
 
 conf = ConfigParser()
 conf.read(root_path / 'conf.ini')
+
+logging.config.fileConfig(root_path / 'log/conf.ini')
+
+runtime_env = {}
 
 if __name__ == '__main__':
     from biz.user import UserMgr

@@ -118,7 +118,7 @@ class Table(GeneralBlock):
 
 
 def crawl(name):
-    f = root_path / f'page_cache/{name}.html'
+    f = root_path / f'page_cache/biligame/{name}.html'
     if f.is_file():
         bs = BeautifulSoup(f.read_text(), 'html.parser')
     else:
@@ -154,3 +154,43 @@ def recur_node(node:Tag):
                     yield GeneralBlock(block.name, recur_node(block), block.get('class', ()))
                 except KeyError as e:
                     print(f'skip block {e}')
+
+
+def baike_crawl(name):
+    f = root_path / f'page_cache/baidu_baike/{name}.html'
+    if f.is_file():
+        bs = BeautifulSoup(f.read_text(), 'html.parser')
+    else:
+        host = 'https://baike.baidu.com'
+        resp = requests.get(f'{host}/item/{name}')
+        resp.raise_for_status()
+        bs = BeautifulSoup(resp.text, 'html.parser')
+        ulist = bs.find('ul', class_='polysemantList-wrapper')
+        cond = lambda c: '三国杀' in c
+        a = ulist.find('a', string=cond, title=cond)
+        resp = requests.get(f'{host}{a["href"]}')
+        resp.raise_for_status()
+        bs = BeautifulSoup(resp.text, 'html.parser')
+        f.write_text(bs.prettify())
+    yield from baike_basic_info(bs.find('div', class_='basic-info'))
+    module = bs.find('div', class_='anchor-list')
+    while module and (node := module.find_next_sibling('div', class_='para-title')):
+        title = get_module_title(node)
+        print(title)
+        while True:
+            module = module.find_next_sibling(('div', 'table'))
+            if not module or 'anchor-list' in module.get('class', ()):
+                break
+            yield from baike_module(module)
+    
+def baike_basic_info(div: Tag):
+    yield
+
+def get_module_title(module: Tag):
+    header = module.find('h2', class_='title-text')
+    if not header:
+        return
+    return ''.join(cs for c in header.children if isinstance(c, NavigableString) and (cs := c.strip()))
+
+def baike_module(module: Tag):
+    yield

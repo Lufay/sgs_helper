@@ -1,3 +1,4 @@
+import atexit
 import random
 from biz.user import UserMgr
 from common import conf
@@ -7,6 +8,7 @@ from utils.router import route, MatchType as MT
 
 hero_mgr = HeroMgr.load(conf['Local']['MarkDownPath'])
 UserMgr.load(conf['Local']['UserRcordPath'])
+atexit.register(UserMgr.dump, conf['Local']['UserRcordPath'])
 
 @route('我是谁', MT.KEYWORD)
 def whoami(content, ctx, *args, **kwargs):

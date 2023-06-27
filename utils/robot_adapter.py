@@ -4,7 +4,7 @@ import hmac
 import time
 
 import requests
-from common import conf
+from common import conf, runtime_env
 from sgs.hero import Hero
 
 
@@ -55,15 +55,16 @@ def get_content_dict(content, at):
 
 
 def robot(content, at=None):
+    conf_section = conf["ChatRobot.debug"] if runtime_env.get('debug', True) else conf['ChatRobot']
     timestamp = int(time.time())
-    sign = f'{timestamp}\n{conf["ChatRobot"]["Token"]}'
+    sign = f'{timestamp}\n{conf_section["Token"]}'
     hmac_code = hmac.new(sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
 
     cont_dict = get_content_dict(content, at)
     cont_dict.update({
         'timestamp': str(timestamp),
         'sign': base64.b64encode(hmac_code).decode('utf-8')})
-    resp = requests.post(conf['ChatRobot']['HookUrl'], json=cont_dict)
+    resp = requests.post(conf_section['HookUrl'], json=cont_dict)
     if resp.ok:
         print(resp.json())
     else:

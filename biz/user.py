@@ -76,6 +76,7 @@ class UserMgr:
     def dump(cls, file_path:str):
         with open(file_path, 'wb') as f:
             pickle.dump(list(cls.user_dict.values()), f)
+        print('dump done')
     
     @classmethod
     def get_user(cls, name) -> User:

@@ -3,10 +3,10 @@ from flask import Flask, request
 
 import facade   # add facade don't remove it
 from utils.router import route_todo
-from biz.user import UserMgr
-from common import conf
+from common import runtime_env
 
 app = Flask(__name__)
+runtime_env['debug'] = app.config.get('DEBUG')
 
 @app.route('/sgs/hero', methods=['GET', 'POST'])
 def hero_main():
@@ -23,7 +23,5 @@ def hero_main():
 
 
 if __name__ == '__main__':
-    try:
-        app.run(debug = True)
-    finally:
-        UserMgr.dump(conf['Local']['UserRcordPath'])
+    # app.run(debug = True)
+    app.run()

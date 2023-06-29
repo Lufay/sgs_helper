@@ -18,6 +18,7 @@ def get_content_dict(content, at):
             }
         }
     elif isinstance(content, Hero):
+        title = content.bili_title and content.baike_title
         hp = f' {content.hp}/{content.hp_max}' if content.hp else ''
         conts = []
         if at:
@@ -37,7 +38,7 @@ def get_content_dict(content, at):
             'card': {
                 'header': {
                     'title': {
-                        'content': f'{content.pack} {content.name}{hp} {content.title}',
+                        'content': f'{content.pack} {content.name}{hp} {title}',
                         'tag': "plain_text"
                     }
                 },

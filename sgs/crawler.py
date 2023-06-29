@@ -1,3 +1,6 @@
+from collections import deque
+from collections.abc import Iterator
+from itertools import tee
 import sys
 import inspect
 
@@ -45,22 +48,39 @@ class B(Text):
         return f'**{s}**' if s else ''
 
 
+class Header(Text):
+    # def __str__(self):
+    #     s = super().__str__()
+    #     return '# ' + s
+    pass
+    
+class Caption(Text):
+    pass
+
 class Img:
     DEFAULT_SRC = '1x'
     def __init__(self, tag:Tag|dict, author=None):
-        self.img_src_set = {'1x': tag["src"]}
+        self.img_src_set = {self.DEFAULT_SRC: tag["src"]}
         for item in tag.get("srcset", '').split(','):
             src, t = item.strip().split()
             self.img_src_set[t] = src
+        self.data_src = tag.get("data-src", '')
         self.alt = tag.get("alt")
         self.author = author
 
+    @property
+    def img_src(self):
+        src = self.img_src_set[self.DEFAULT_SRC]
+        if not src.startswith('http') and self.data_src.startswith('http'):
+            return self.data_src
+        return src
+
     def __str__(self) -> str:
-        return f'![{self.alt}]({self.img_src_set[self.DEFAULT_SRC]})'
+        return f'![{self.alt}]({self.img_src})'
 
 class GeneralBlock:
-    BLACK_NAMES = {'style', 'script'}
-    WHITE_NAMES = {'div', 'p', 'span', 'hr', 'h2', 'a', }
+    BLACK_NAMES = {'style', 'script', 'sup'}
+    WHITE_NAMES = {'div', 'p', 'span', 'hr', 'h2', 'h3', 'a', }
     BLACK_CLASSES = {'btn', 'desc-color', 'wiki-bot'}
     def __init__(self, name, contents, classes=()):
         if name in self.BLACK_NAMES or self.BLACK_CLASSES.intersection(classes):
@@ -71,10 +91,15 @@ class GeneralBlock:
         self.classes = classes
 
     def __iter__(self):
+        if inspect.isgenerator(self.contents) or isinstance(self.contents, Iterator):
+            a, b = tee(self.contents)
+            self.contents = a
+            return b
         return iter(self.contents)
 
     def __str__(self) -> str:
-        raise NotImplementedError
+        return ''.join(str(c) for c in self.contents)
+    
 
 class UList(GeneralBlock):
     WHITE_NAMES = {'ul', 'li'}
@@ -85,36 +110,54 @@ class UList(GeneralBlock):
     def __str__(self) -> str:
         if self.__name__ == 'ul':
             return '\n'.join(f'{self.leader}{c}  ' for c in self.contents)
-        else:
-            return ' '.join(str(c) for c in self.contents)
+        return super().__str__()
 
 
 class Table(GeneralBlock):
     WHITE_NAMES = {'table', 'thead', 'tbody', 'tr', 'th', 'td'}
-    def __init__(self, name, contents):
-        super().__init__(name, contents)
+    def __init__(self, name, contents, **kwargs):
+        classes = kwargs.pop('class', ())
+        super().__init__(name, contents, classes)
+        self.attrd = kwargs
         if name == 'table':
             self.headers = []
             self.records = []
             self.record = []
+            self.rowspan_cache = deque()
             self.iter_children(contents)
 
     def iter_children(self, children):
+        '''only table to run
+        '''
+        col_idx = 0
         for cont in children:
             match cont:
-                case Table(__name__='thead') | Table(__name__='tbody'):
-                    self.iter_children(cont.contents)
-                case Table(__name__='tr'):
+                case Table(__name__='thead') | Table(__name__='tbody') | Table(__name__='tr'):
                     if self.record:
                         self.records.append(self.record)
                         self.record = []
+                        col_idx = 0
                     self.iter_children(cont.contents)
                 case Table(__name__='th'):
                     self.headers.append(cont.contents)
                 case Table(__name__='td'):
+                    if self.rowspan_cache and (top := self.rowspan_cache[0]).idx == col_idx:
+                        self.record.append(top)
+                        if top.cache_cnt > 1:
+                            top.cache_cnt -= 1
+                            self.rowspan_cache.rotate(-1)
+                        else:
+                            self.rowspan_cache.popleft()
+                        col_idx += 1
+                    if cache_cnt := (int(cont.attrd.get('rowspan', 1)) - 1):
+                        cont.cache_cnt = cache_cnt
+                        cont.idx = col_idx
+                        self.rowspan_cache.append(cont.contents)
                     self.record.append(cont.contents)
+                    col_idx += 1
         if self.record:
             self.records.append(self.record)
+            self.record = []
 
 
 def crawl(name):
@@ -136,14 +179,14 @@ def recur_node(node:Tag):
                 yield block.strip()
             case Tag(name='br'):
                 yield '\n'
-            case Tag(name='i') | Tag(name='font') | Tag(name='small') | Tag(name='b'):
+            case Tag(name='i') | Tag(name='font') | Tag(name='small') | Tag(name='b') | Tag(name='caption'):
                 yield Text(''.join(block.stripped_strings), block.name, **block.attrs)
             case Tag(name='img'):
                 yield Img(block)
             case Tag(name='li') | Tag(name='ul'):
                 yield UList(block.name, recur_node(block))
             case Tag(name='table') | Tag(name='thead') | Tag(name='tbody') | Tag(name='tr') | Tag(name='th') | Tag(name='td'):
-                yield Table(block.name, recur_node(block))
+                yield Table(block.name, recur_node(block), **node.attrs)
             case Tag(name='div') if '锚点' in block.get('class', ()):
                 block_cont = ''.join(block.stripped_strings)
                 if any(map(lambda x: x in block_cont, ('国战', '自走棋', '皮肤', '秀'))):
@@ -166,31 +209,37 @@ def baike_crawl(name):
         resp.raise_for_status()
         bs = BeautifulSoup(resp.text, 'html.parser')
         ulist = bs.find('ul', class_='polysemantList-wrapper')
-        cond = lambda c: '三国杀' in c
+        cond = lambda c: '三国杀' in c and '武将牌' in c
         a = ulist.find('a', string=cond, title=cond)
         resp = requests.get(f'{host}{a["href"]}')
         resp.raise_for_status()
         bs = BeautifulSoup(resp.text, 'html.parser')
         f.write_text(bs.prettify())
-    yield from baike_basic_info(bs.find('div', class_='basic-info'))
+    yield baike_basic_info(bs.find('div', class_='basic-info'))
     module = bs.find('div', class_='anchor-list')
     while module and (node := module.find_next_sibling('div', class_='para-title')):
         title = get_module_title(node)
-        print(title)
+        yield Header(title)
+        module = node
         while True:
             module = module.find_next_sibling(('div', 'table'))
             if not module or 'anchor-list' in module.get('class', ()):
                 break
-            yield from baike_module(module)
+            yield from recur_node(module)
     
 def baike_basic_info(div: Tag):
-    yield
+    basic_info = {}
+    for dl in div.find_all('dl'):
+        cur:Tag = dl.dt
+        while cur:
+            nxt = cur.find_next_sibling('dd')
+            key = ''.join(cur.string.strip().split())
+            basic_info[key] = str(GeneralBlock('div', recur_node(nxt)))
+            cur = nxt.find_next_sibling('dt')
+    return basic_info
 
 def get_module_title(module: Tag):
     header = module.find('h2', class_='title-text')
     if not header:
         return
     return ''.join(cs for c in header.children if isinstance(c, NavigableString) and (cs := c.strip()))
-
-def baike_module(module: Tag):
-    yield

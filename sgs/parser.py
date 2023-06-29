@@ -2,24 +2,140 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import Field, dataclass, field, fields
 from functools import cached_property
+import logging
+import operator
 
-from .crawler import Img, GeneralBlock, Text, Table
+from .crawler import crawl, baike_crawl, Img, GeneralBlock, Text, Table, Header, Caption
+
+class Parser(ABC):
+    @abstractmethod
+    def crawl_parse(self, name): ...
+
+    @cached_property
+    def alias_mapper(self):
+        return {alias:fd for fd in fields(self) if (alias := fd.metadata.get('alias'))}
 
 @dataclass(init=False, eq=False, match_args=False)
-class BiligameParser(ABC):
+class BaiduBaikeParser(Parser):
+    baike_title:str = field(default='', init=False, metadata={'alias': '称号'})
+    game_mode: str = field(default='', init=False, metadata={'alias':'模式'})
+    card_id: str = field(default='', init=False, metadata={'alias': '编号'})
+    baike_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
+    module_name: str = field(default='', init=False, repr=False)
+    sub_mod_name: str = field(default='', init=False, repr=False)
+    sub_module: dict = field(default_factory=dict, init=False, repr=False)
+
+    @abstractmethod
+    def set_image_author(self, author): ...
+
+    table_parser = lambda method_name: (lambda table: operator.methodcaller(method_name, table))
+    module_parsers = {
+        '能力设定': table_parser('parse_skills'),
+        '角色专属': table_parser('parse_images'),
+        '武将台词': table_parser('parse_lines'),
+        '属性': table_parser('parse_attrs'),
+        '技能': table_parser('parse_skills'),
+        '皮肤': table_parser('parse_images'),
+    }
+
+    def crawl_parse(self, name):
+        if self.baike_skill_ver:
+            for node in baike_crawl(name):
+                if node:
+                    match node:
+                        case dict():
+                            self.parse_basic_info(node)
+                        case Header(t) if t in self.module_parsers.keys():
+                            self.new_sub_mod(self.module_name)
+                            self.module_name = t
+                        case _ if self.module_name in self.sub_module:
+                            self.parse_module_item(node)
+            for key, table in self.sub_module.items():
+                if f := self.module_parsers.get(key):
+                    f(table)(self)
+            # self.clear_modules()
+        return super().crawl_parse(name)
+    
+    # def clear_modules(self):
+    #     self.module_name = self.sub_mod_name = ''
+    #     self.sub_module = {}
+    
+    def parse_basic_info(self, info:dict):
+        info.setdefault('势力', info.get('所属势力', '未知')[0])
+        del info['技能']
+        for alias, fd in self.alias_mapper.items():
+            if alias in info:
+                val = info[alias]
+                if func := fd.metadata.get('val_trans'):
+                    val = func(val)
+                setattr(self, fd.name, val)
+
+    def parse_module_item(self, item):
+        match item:
+            case Caption(t):
+                self.new_sub_mod(t)
+            case Table():
+                self.sub_module[self.sub_mod_name].contents.append(item)
+
+    def new_sub_mod(self, name):
+        if self.sub_mod_name and (table := self.sub_module.get(self.sub_mod_name)):
+            table.iter_children(table.contents)
+        self.sub_mod_name = name
+        self.sub_module[name] = Table('table', [])
+
+    def parse_attrs(self, table: Table):
+        len_header = len(table.headers)
+        headers = [str(GeneralBlock('p', h)) for h in table.headers[1:]]
+        for record in table.records:
+            assert len(record) == len_header
+            if self.baike_skill_ver in str(GeneralBlock('p', record[0])):
+                for i, col in enumerate(record[1:]):
+                    col_name = headers[i]
+                    val = str(GeneralBlock('p', col))
+                    if col_name == '画师':
+                        self.set_image_author(val)
+                    elif fd := self.alias_mapper.get(col_name):
+                        if func := fd.metadata.get('val_trans'):
+                            val = func(val)
+                        setattr(self, fd.name, val)
+
+    def parse_skills(self, table: Table):
+        print(f'skill header len: {len(table.headers)}')
+        for record in table.records:
+            print(f'\trecord len: {len(record)}')
+    
+    def parse_images(self, table: Table):
+        pass
+
+    def parse_lines(self, table: Table):
+        pass
+
+@dataclass(init=False, eq=False, match_args=False)
+class BiligameParser(Parser):
+    bili_title: str = field(default='', init=False, metadata={'alias': '武将称号'})
+    biligame_pack: str = field(default='', init=False, metadata={'alias': '武将包'})
     biligame_key: str = field(default='', init=False, metadata={'md_key': ''})
     biligame_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
 
-    @abstractmethod
-    def set_title(self, title): ...
     @abstractmethod
     def set_image(self, image): ...
     @abstractmethod
     def set_image_author(self, author): ...
 
-    @cached_property
-    def alias_mapper(self):
-        return {alias:fd for fd in fields(self) if (alias := fd.metadata.get('alias'))}
+    def crawl_parse(self, name):
+        if not self.biligame_pack and self.biligame_key != 'none':
+            not_p_header = True
+            try:
+                for line in crawl(self.biligame_key if self.biligame_key else name):
+                    if line and isinstance(line, GeneralBlock):
+                        if not_p_header:
+                            not_p_header = self.parse_header(line)
+                        elif not self.parse_module(line):
+                            break
+            except Exception as e:
+                logger = logging.getLogger('biligameCrawler')
+                logger.error('crawl biligame failed %s', e, exc_info=True, stack_info=True)
+        return super().crawl_parse(name)
     
     def clear_alias_key(self):
         del self.key, self.hit_alias, self.anchor
@@ -57,7 +173,7 @@ class BiligameParser(ABC):
             if isinstance(line, str) and (sline := line.strip()):
                 if '武将称号' in sline:
                     skip = False
-                    self.set_title(sline.removeprefix('武将称号：'))
+                    self.bili_title = sline.removeprefix('武将称号：')
                 elif isinstance(line, Text) and line.__name__ == 'pack':
                     return False
                 else:

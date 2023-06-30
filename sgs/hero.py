@@ -2,7 +2,7 @@ from enum import Enum
 from dataclasses import dataclass, field, fields
 from typing import List, Optional
 
-from .crawler import Img, Text, UList
+from .crawler import Img
 from .parser import BiligameParser, BaiduBaikeParser
 from utils import classproperty
 
@@ -32,8 +32,6 @@ class Hero(BiligameParser, BaiduBaikeParser):
     image: Optional[Img] = None
     gender: str = field(default='', metadata={'alias': '性别'})
     camp: Camp = field(default=Camp.UNKNOWN, metadata={'alias': '势力', 'val_trans': Camp.get_value})
-    skills: List[str] = field(default_factory=list, metadata={'alias': '技能', 'anchor_num': 1, 'sections': ['技能标签']})
-    lines: List[str] = field(default_factory=list, metadata={'alias': '台词', 'anchor_num': 1, 'sections': ['basic-info-row-label']})
     position: List[str] = field(default_factory=list, metadata={'alias': '定位', 'anchor_num': 1})
     is_monarch: bool = False
 
@@ -46,29 +44,6 @@ class Hero(BiligameParser, BaiduBaikeParser):
     def crawl_by_name(self):
         self.crawl_parse(self.name)
         return self
-    
-    @property
-    def skill_str(self) -> str:
-        return self.to_str(self.skills)
-    
-    @property
-    def lines_str(self) -> str:
-        return self.to_str(self.lines)
-
-    @staticmethod
-    def to_str(lists):
-        secs = []
-        sec = []
-        for item in lists:
-            if isinstance(item, list):
-                if sec:
-                    secs.append(UList('li', sec))
-                    sec = []
-                sec.append(Text(''.join(item), 'b'))
-            else:
-                sec.append(item)
-        secs.append(UList('li', sec))
-        return str(UList('ul', secs))
     
     def set_image_author(self, author):
         self.image.author = author

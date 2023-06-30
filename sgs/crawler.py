@@ -98,7 +98,7 @@ class GeneralBlock:
         return iter(self.contents)
 
     def __str__(self) -> str:
-        return ''.join(str(c) for c in self.contents)
+        return ''.join(str(c) for c in self)
     
 
 class UList(GeneralBlock):
@@ -137,9 +137,9 @@ class Table(GeneralBlock):
                         self.records.append(self.record)
                         self.record = []
                         col_idx = 0
-                    self.iter_children(cont.contents)
+                    self.iter_children(cont)
                 case Table(__name__='th'):
-                    self.headers.append(cont.contents)
+                    self.headers.append(cont)
                 case Table(__name__='td'):
                     if self.rowspan_cache and (top := self.rowspan_cache[0]).idx == col_idx:
                         self.record.append(top)
@@ -152,8 +152,8 @@ class Table(GeneralBlock):
                     if cache_cnt := (int(cont.attrd.get('rowspan', 1)) - 1):
                         cont.cache_cnt = cache_cnt
                         cont.idx = col_idx
-                        self.rowspan_cache.append(cont.contents)
-                    self.record.append(cont.contents)
+                        self.rowspan_cache.append(cont)
+                    self.record.append(cont)
                     col_idx += 1
         if self.record:
             self.records.append(self.record)
@@ -186,7 +186,7 @@ def recur_node(node:Tag):
             case Tag(name='li') | Tag(name='ul'):
                 yield UList(block.name, recur_node(block))
             case Tag(name='table') | Tag(name='thead') | Tag(name='tbody') | Tag(name='tr') | Tag(name='th') | Tag(name='td'):
-                yield Table(block.name, recur_node(block), **node.attrs)
+                yield Table(block.name, recur_node(block), **block.attrs)
             case Tag(name='div') if '锚点' in block.get('class', ()):
                 block_cont = ''.join(block.stripped_strings)
                 if any(map(lambda x: x in block_cont, ('国战', '自走棋', '皮肤', '秀'))):

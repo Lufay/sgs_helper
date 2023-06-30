@@ -4,8 +4,9 @@ from dataclasses import Field, dataclass, field, fields
 from functools import cached_property
 import logging
 import operator
+from typing import List
 
-from .crawler import crawl, baike_crawl, Img, GeneralBlock, Text, Table, Header, Caption
+from .crawler import UList, crawl, baike_crawl, Img, GeneralBlock, Text, Table, Header, Caption
 
 class Parser(ABC):
     @abstractmethod
@@ -20,6 +21,8 @@ class BaiduBaikeParser(Parser):
     baike_title:str = field(default='', init=False, metadata={'alias': '称号'})
     game_mode: str = field(default='', init=False, metadata={'alias':'模式'})
     card_id: str = field(default='', init=False, metadata={'alias': '编号'})
+    baike_skill_names: list = field(default_factory=list, init=False, metadata={'alias': '技能名称'})
+    baike_skill_descs: list = field(default_factory=list, init=False, metadata={'alias': '技能描述'})
     baike_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
     module_name: str = field(default='', init=False, repr=False)
     sub_mod_name: str = field(default='', init=False, repr=False)
@@ -28,7 +31,7 @@ class BaiduBaikeParser(Parser):
     @abstractmethod
     def set_image_author(self, author): ...
 
-    table_parser = lambda method_name: (lambda table: operator.methodcaller(method_name, table))
+    table_parser = lambda method_name: (lambda *args: operator.methodcaller(method_name, *args))
     module_parsers = {
         '能力设定': table_parser('parse_skills'),
         '角色专属': table_parser('parse_images'),
@@ -39,20 +42,24 @@ class BaiduBaikeParser(Parser):
     }
 
     def crawl_parse(self, name):
-        if self.baike_skill_ver:
+        if self.baike_skill_ver and not self.baike_skill_names:
             for node in baike_crawl(name):
                 if node:
                     match node:
                         case dict():
                             self.parse_basic_info(node)
                         case Header(t) if t in self.module_parsers.keys():
-                            self.new_sub_mod(self.module_name)
+                            self.new_sub_mod(t)
                             self.module_name = t
                         case _ if self.module_name in self.sub_module:
                             self.parse_module_item(node)
             for key, table in self.sub_module.items():
-                if f := self.module_parsers.get(key):
-                    f(table)(self)
+                if table.headers and (f := self.module_parsers.get(key)):
+                    len_header = len(table.headers)
+                    headers = [str(h) for h in table.headers[1:]]
+                    for record in table.records:
+                        assert len(record) == len_header
+                        f(headers, record)(self)
             # self.clear_modules()
         return super().crawl_parse(name)
     
@@ -83,36 +90,43 @@ class BaiduBaikeParser(Parser):
         self.sub_mod_name = name
         self.sub_module[name] = Table('table', [])
 
-    def parse_attrs(self, table: Table):
-        len_header = len(table.headers)
-        headers = [str(GeneralBlock('p', h)) for h in table.headers[1:]]
-        for record in table.records:
-            assert len(record) == len_header
-            if self.baike_skill_ver in str(GeneralBlock('p', record[0])):
-                for i, col in enumerate(record[1:]):
-                    col_name = headers[i]
-                    val = str(GeneralBlock('p', col))
-                    if col_name == '画师':
-                        self.set_image_author(val)
-                    elif fd := self.alias_mapper.get(col_name):
-                        if func := fd.metadata.get('val_trans'):
-                            val = func(val)
-                        setattr(self, fd.name, val)
+    def parse_attrs(self, headers:list, record: list):
+        if self.baike_skill_ver in str(record[0]):
+            for i, col in enumerate(record[1:]):
+                col_name = headers[i]
+                val = str(col)
+                if col_name == '画师':
+                    self.set_image_author(val)
+                elif fd := self.alias_mapper.get(col_name):
+                    if func := fd.metadata.get('val_trans'):
+                        val = func(val)
+                    setattr(self, fd.name, val)
 
-    def parse_skills(self, table: Table):
-        print(f'skill header len: {len(table.headers)}')
-        for record in table.records:
-            print(f'\trecord len: {len(record)}')
+    def parse_skills(self, headers:list, record: list):
+        if self.baike_skill_ver in str(record[0]):
+            for i, col in enumerate(record[1:]):
+                col_name = headers[i]
+                val = str(col)
+                if fd := self.alias_mapper.get(col_name):
+                    if func := fd.metadata.get('val_trans'):
+                        val = func(val)
+                    if issubclass(fd.type, list):
+                        getattr(self, fd.name).append(val)
     
-    def parse_images(self, table: Table):
-        pass
+    def parse_images(self, headers:list, record: list):
+        print(f'image header len: {len(headers)} {headers}')
+        print(f'\trecord len: {len(record)}')
 
-    def parse_lines(self, table: Table):
+    def parse_lines(self, headers:list, record: list):
         pass
 
 @dataclass(init=False, eq=False, match_args=False)
 class BiligameParser(Parser):
     bili_title: str = field(default='', init=False, metadata={'alias': '武将称号'})
+    bili_skills: List[str] = field(default_factory=list, init=False, metadata={
+        'alias': '技能', 'anchor_num': 1, 'sections': ['技能标签']})
+    bili_lines: List[str] = field(default_factory=list, init=False, metadata={
+        'alias': '台词', 'anchor_num': 1, 'sections': ['basic-info-row-label']})
     biligame_pack: str = field(default='', init=False, metadata={'alias': '武将包'})
     biligame_key: str = field(default='', init=False, metadata={'md_key': ''})
     biligame_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
@@ -121,6 +135,29 @@ class BiligameParser(Parser):
     def set_image(self, image): ...
     @abstractmethod
     def set_image_author(self, author): ...
+
+    @property
+    def skill_str(self) -> str:
+        return self.to_str(self.bili_skills)
+    
+    @property
+    def lines_str(self) -> str:
+        return self.to_str(self.bili_lines)
+    
+    @staticmethod
+    def to_str(lists):
+        secs = []
+        sec = []
+        for item in lists:
+            if isinstance(item, list):
+                if sec:
+                    secs.append(UList('li', sec))
+                    sec = []
+                sec.append(Text(''.join(item), 'b'))
+            else:
+                sec.append(item)
+        secs.append(UList('li', sec))
+        return str(UList('ul', secs))
 
     def crawl_parse(self, name):
         if not self.biligame_pack and self.biligame_key != 'none':

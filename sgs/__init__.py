@@ -76,7 +76,6 @@ class HeroMgr:
         cur_strs = []
         lines = []
         def add_to_lines():
-            nonlocal cur_strs
             raw_line = ''.join(filter(None, cur_strs))
             if not raw_line:
                 return
@@ -94,7 +93,6 @@ class HeroMgr:
             if self.MONARCH_TAG in raw_line:
                 self.heros[-1].is_monarch = True
             lines.append(self.line_prefix + raw_line)
-            cur_strs = []
 
         for cont_node in node['children']:
             match cont_node['type']:
@@ -105,6 +103,7 @@ class HeroMgr:
                     cur_strs.append(cont_node['content'])
                 case 'LineBreak':
                     add_to_lines()
+                    cur_strs.clear()
                 case _ as t:
                     raise TypeError(t)
         add_to_lines()

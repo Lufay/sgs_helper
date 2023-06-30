@@ -23,7 +23,9 @@ class BaiduBaikeParser(Parser):
     card_id: str = field(default='', init=False, metadata={'alias': '编号'})
     baike_skill_names: list = field(default_factory=list, init=False, metadata={'alias': '技能名称'})
     baike_skill_descs: list = field(default_factory=list, init=False, metadata={'alias': '技能描述'})
+    baike_lines: list = field(default_factory=list, init=False)
     baike_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
+    baike_line_ver: str = field(default='', init=False, metadata={'md_key': ''})
     module_name: str = field(default='', init=False, repr=False)
     sub_mod_name: str = field(default='', init=False, repr=False)
     sub_module: dict = field(default_factory=dict, init=False, repr=False)
@@ -33,12 +35,13 @@ class BaiduBaikeParser(Parser):
 
     table_parser = lambda method_name: (lambda *args: operator.methodcaller(method_name, *args))
     module_parsers = {
-        '能力设定': table_parser('parse_skills'),
+        '能力设定': table_parser('parse_abilities'),
         '角色专属': table_parser('parse_images'),
-        '武将台词': table_parser('parse_lines'),
-        '属性': table_parser('parse_attrs'),
-        '技能': table_parser('parse_skills'),
+        '武将台词': table_parser('parse_abilities'),
+        '属性': table_parser('parse_abilities'),
+        '技能': table_parser('parse_abilities'),
         '皮肤': table_parser('parse_images'),
+        '彩蛋花絮': None
     }
 
     def crawl_parse(self, name):
@@ -59,7 +62,9 @@ class BaiduBaikeParser(Parser):
                     headers = [str(h) for h in table.headers[1:]]
                     for record in table.records:
                         assert len(record) == len_header
-                        f(headers, record)(self)
+                        # trick key
+                        tmp = self.baike_line_ver if key == '武将台词' else self.baike_skill_ver
+                        f(tmp, headers, record)(self)
             # self.clear_modules()
         return super().crawl_parse(name)
     
@@ -90,35 +95,27 @@ class BaiduBaikeParser(Parser):
         self.sub_mod_name = name
         self.sub_module[name] = Table('table', [])
 
-    def parse_attrs(self, headers:list, record: list):
-        if self.baike_skill_ver in str(record[0]):
+    def parse_abilities(self, key:str, headers:list, record: list):
+        if key in str(record[0]):
             for i, col in enumerate(record[1:]):
                 col_name = headers[i]
-                val = str(col)
                 if col_name == '画师':
-                    self.set_image_author(val)
+                    self.set_image_author(str(col))
+                elif col_name == '台词':
+                    self.baike_lines = [str(d) for d in col if d]
                 elif fd := self.alias_mapper.get(col_name):
-                    if func := fd.metadata.get('val_trans'):
-                        val = func(val)
-                    setattr(self, fd.name, val)
-
-    def parse_skills(self, headers:list, record: list):
-        if self.baike_skill_ver in str(record[0]):
-            for i, col in enumerate(record[1:]):
-                col_name = headers[i]
-                val = str(col)
-                if fd := self.alias_mapper.get(col_name):
+                    val = str(col)
                     if func := fd.metadata.get('val_trans'):
                         val = func(val)
                     if issubclass(fd.type, list):
                         getattr(self, fd.name).append(val)
+                    else:
+                        setattr(self, fd.name, val)
     
-    def parse_images(self, headers:list, record: list):
+    def parse_images(self, key:str, headers:list, record: list):
         print(f'image header len: {len(headers)} {headers}')
         print(f'\trecord len: {len(record)}')
 
-    def parse_lines(self, headers:list, record: list):
-        pass
 
 @dataclass(init=False, eq=False, match_args=False)
 class BiligameParser(Parser):

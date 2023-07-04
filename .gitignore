@@ -2,6 +2,7 @@ page_cache
 .vscode
 conf.ini
 *.pickle
+*.log.*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

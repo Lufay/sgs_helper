@@ -18,8 +18,8 @@ def get_content_dict(content, at):
             }
         }
     elif isinstance(content, Hero):
-        title = content.bili_title and content.baike_title
-        hp = f' {content.hp}/{content.hp_max}' if content.hp else ''
+        title = content.bili_title or content.baike_title
+        hp = f' {content.hp}/{content.hp_max}' if content.hp or content.hp_max else ''
         conts = []
         if at:
             conts.append(f'<at id="">{at}</at>')
@@ -27,11 +27,15 @@ def get_content_dict(content, at):
             f'性别: {content.gender}',
             f'势力: {content.camp.value}',
             f'定位: {content.position}',
-            f'技能:  \n{content.skill_str}',
+            f'十周年技能:  \n{content.bili_skill_str}',
             '***',
-            *content.contents,
+            f'百科技能: \n{content.baike_skill_str}',
             '***',
-            f'台词:  \n {content.lines_str}',
+            *(c.md_format() for c in content.contents),
+            '***',
+            f'十周年台词:  \n{content.bili_lines_str}',
+            '***',
+            f'百科台词: \n{content.baike_line_str}'
         ])
         return {
             'msg_type': 'interactive',

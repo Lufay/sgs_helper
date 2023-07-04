@@ -9,7 +9,11 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 
 from common import root_path
 
-class Text(str):
+class Markdown:
+    def md_format(self, **kwargs):
+        return str(self)
+
+class Text(str, Markdown):
     def __new__(cls, text='', name='', *args, **kwargs):
         cls = dict(cls.local_subclasses).get(name, cls)
         return super().__new__(cls, text)
@@ -30,34 +34,33 @@ class Text(str):
 
 
 class I(Text):
-    def __str__(self):
-        s = super().__str__()
+    def md_format(self, **kwargs):
+        s = super().md_format(**kwargs)
         return f'*{s}*' if s else ''
 
     
 class Font(Text):
-    def __str__(self) -> str:
+    def md_format(self, **kwargs):
         t = Tag(name=self.__name__, attrs=self.attrs)
-        t.append(BeautifulSoup().new_string(super().__str__()))
+        t.append(BeautifulSoup().new_string(super().md_format(**kwargs)))
         return str(t)
 
 
 class B(Text):
-    def __str__(self):
-        s = super().__str__()
+    def md_format(self, **kwargs):
+        s = super().md_format(**kwargs)
         return f'**{s}**' if s else ''
 
 
 class Header(Text):
-    # def __str__(self):
-    #     s = super().__str__()
-    #     return '# ' + s
-    pass
+    def md_format(self, **kwargs):
+        level = kwargs.pop('level', 1)
+        return '#' * level + ' ' + super().md_format(**kwargs)
     
 class Caption(Text):
     pass
 
-class Img:
+class Img(Markdown):
     DEFAULT_SRC = '1x'
     def __init__(self, tag:Tag|dict, author=None):
         self.img_src_set = {self.DEFAULT_SRC: tag["src"]}
@@ -68,17 +71,23 @@ class Img:
         self.alt = tag.get("alt")
         self.author = author
 
-    @property
-    def img_src(self):
-        src = self.img_src_set[self.DEFAULT_SRC]
+    def img_src(self, src_key=None):
+        if src_key is None:
+            src_key = self.DEFAULT_SRC
+        src = self.img_src_set[src_key]
         if not src.startswith('http') and self.data_src.startswith('http'):
             return self.data_src
         return src
 
     def __str__(self) -> str:
-        return f'![{self.alt}]({self.img_src})'
+        return self.img_src_set[self.DEFAULT_SRC]
+    
+    def md_format(self, **kwargs):
+        src_key = kwargs.get('src_key')
+        return f'![{self.alt}]({self.img_src(src_key)})'
 
-class GeneralBlock:
+
+class GeneralBlock(Markdown):
     BLACK_NAMES = {'style', 'script', 'sup'}
     WHITE_NAMES = {'div', 'p', 'span', 'hr', 'h2', 'h3', 'a', }
     BLACK_CLASSES = {'btn', 'desc-color', 'wiki-bot'}
@@ -87,7 +96,7 @@ class GeneralBlock:
             raise KeyError(name + str(classes))
         assert name in self.WHITE_NAMES, name
         self.__name__ = name
-        self.contents = contents
+        self.contents = filter(None, contents)
         self.classes = classes
 
     def __iter__(self):
@@ -100,17 +109,58 @@ class GeneralBlock:
     def __str__(self) -> str:
         return ''.join(str(c) for c in self)
     
+    def md_format(self, **kwargs):
+        return ''.join(c.md_format(**kwargs) if isinstance(c, Markdown) else str(c) for c in self)
+    
+    @classmethod
+    def empty(cls, name):
+        ins = cls.__new__(cls)
+        ins.__name__ = name
+        ins.contents = []
+        ins.classes = ()
+        return ins
+
 
 class UList(GeneralBlock):
     WHITE_NAMES = {'ul', 'li'}
-    def __init__(self, name, contents, leader='+ '):
+    def __init__(self, name, contents, leader='+'):
         super().__init__(name, contents)
         self.leader = leader
 
-    def __str__(self) -> str:
+    def __str__(self):
         if self.__name__ == 'ul':
-            return '\n'.join(f'{self.leader}{c}  ' for c in self.contents)
-        return super().__str__()
+            return str(list(self.contents))
+        return super.__str__()
+    
+    def md_format(self, **kwargs):
+        if self.__name__ == 'ul':
+            return '\n'.join((c.md_format(**kwargs) if isinstance(c, Markdown) else str(c)) + '  ' for c in self.contents)
+        elif self.__name__ == 'li':
+            return f'{self.leader} {super().md_format(**kwargs)}'
+        return super().md_format(**kwargs)
+
+    @classmethod
+    def copy_from_block(cls, name, block, leader='+'):
+        assert isinstance(block, GeneralBlock)
+        ins = cls.__new__(cls)
+        ins.__name__ = name
+        ins.contents = block.contents
+        ins.leader = leader
+        return ins
+    
+    @classmethod
+    def list_collect(cls, blocks):
+        lis = []
+        for block in blocks:
+            if isinstance(block, cls) and block.__name__ == 'li':
+                lis.append(block)
+            else:
+                if lis:
+                    yield cls('ul', lis)
+                    lis.clear()
+                yield block
+        if lis:
+            yield cls('ul', lis)
 
 
 class Table(GeneralBlock):
@@ -153,11 +203,22 @@ class Table(GeneralBlock):
                         cont.cache_cnt = cache_cnt
                         cont.idx = col_idx
                         self.rowspan_cache.append(cont)
-                    self.record.append(cont)
-                    col_idx += 1
+                    for i in range(int(cont.attrd.get('colspan', 1))):
+                        self.record.append(cont)
+                        col_idx += 1
         if self.record:
             self.records.append(self.record)
             self.record = []
+
+    @classmethod
+    def empty(cls, name):
+        ins = super().empty(name)
+        if name == 'table':
+            ins.headers = []
+            ins.records = []
+            ins.record = []
+            ins.rowspan_cache = deque()
+        return ins
 
 
 def crawl(name):
@@ -207,10 +268,14 @@ def baike_crawl(name):
         host = 'https://baike.baidu.com'
         resp = requests.get(f'{host}/item/{name}')
         resp.raise_for_status()
+        print(resp.encoding)
         bs = BeautifulSoup(resp.text, 'html.parser')
         ulist = bs.find('ul', class_='polysemantList-wrapper')
-        cond = lambda c: '三国杀' in c and '武将牌' in c
-        a = ulist.find('a', string=cond, title=cond)
+        cond = lambda c: c and '三国杀' in c and '武将牌' in c
+        if ulist:
+            a = ulist.find('a', string=cond, title=cond)
+        else:
+            a = bs.find('a', string=cond)
         resp = requests.get(f'{host}{a["href"]}')
         resp.raise_for_status()
         bs = BeautifulSoup(resp.text, 'html.parser')
@@ -239,7 +304,7 @@ def baike_basic_info(div: Tag):
     return basic_info
 
 def get_module_title(module: Tag):
-    header = module.find('h2', class_='title-text')
+    header = module.find(('h2', 'h3'), class_='title-text')
     if not header:
         return
     return ''.join(cs for c in header.children if isinstance(c, NavigableString) and (cs := c.strip()))

@@ -2,7 +2,7 @@ from enum import Enum
 from dataclasses import dataclass, field, fields
 from typing import List, Optional
 
-from .crawler import Img
+from .crawler import GeneralBlock, Img
 from .parser import BiligameParser, BaiduBaikeParser
 from utils import classproperty
 
@@ -26,7 +26,7 @@ class Camp(Enum):
 class Hero(BiligameParser, BaiduBaikeParser):
     pack: str
     name: str
-    contents: List[str] = field(default_factory=list)
+    contents: List[GeneralBlock] = field(default_factory=list)
     hp: int = field(default=0, metadata={'alias': '勾玉', 'val_trans': int})
     hp_max: int = field(default=0, metadata={'alias': '体力', 'val_trans': lambda s: int(s.partition('勾玉')[0])})
     image: Optional[Img] = None

@@ -8,7 +8,7 @@ from typing import List
 import mistletoe
 from mistletoe.ast_renderer import get_ast
 
-from .crawler import Text
+from .crawler import GeneralBlock, Text, UList
 from .hero import Hero
 from common import root_path
 
@@ -76,23 +76,26 @@ class HeroMgr:
         cur_strs = []
         lines = []
         def add_to_lines():
-            raw_line = ''.join(filter(None, cur_strs))
-            if not raw_line:
-                return
-            hero = self.heros[-1]
-            if m := self.HP_PATTERN.fullmatch(raw_line):
-                hero.hp, hero.hp_max = map(int, m.groups(0))
-                if not hero.hp_max and hero.hp:
-                    hero.hp_max = hero.hp
-                return
-            else:
-                for fd_name, pattern in self.str_patterns.items():
-                    if m := pattern.match(raw_line):
-                        setattr(hero, fd_name, m.group(1))
-                        return
-            if self.MONARCH_TAG in raw_line:
-                self.heros[-1].is_monarch = True
-            lines.append(self.line_prefix + raw_line)
+            block = GeneralBlock('div', cur_strs)
+            raw_line = str(block)
+            if raw_line:
+                hero = self.heros[-1]
+                if m := self.HP_PATTERN.fullmatch(raw_line):
+                    hero.hp, hero.hp_max = map(int, m.groups(0))
+                    if not hero.hp_max and hero.hp:
+                        hero.hp_max = hero.hp
+                    return
+                else:
+                    for fd_name, pattern in self.str_patterns.items():
+                        if m := pattern.match(raw_line):
+                            setattr(hero, fd_name, m.group(1))
+                            return
+                if self.MONARCH_TAG in raw_line:
+                    self.heros[-1].is_monarch = True
+                if self.line_prefix:
+                    lines.append(UList.copy_from_block('li', block, self.line_prefix))
+                else:
+                    lines.append(block)
 
         for cont_node in node['children']:
             match cont_node['type']:
@@ -107,12 +110,12 @@ class HeroMgr:
                 case _ as t:
                     raise TypeError(t)
         add_to_lines()
-        if cont := '\n'.join(filter(None, lines)):
-            self.heros[-1].contents.append(cont)
+        if lines:
+            self.heros[-1].contents.append(GeneralBlock('p', UList.list_collect(lines)))
     
     def process_List(self, node):
         for item in node['children']:
-            self.line_prefix = item['leader'] + ' '
+            self.line_prefix = item['leader']
             for child in item['children']:
                 self.process_node(child)
             self.line_prefix = ''

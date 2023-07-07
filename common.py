@@ -5,6 +5,7 @@ from pathlib import Path
 root_path = Path(__file__).parent
 
 conf = ConfigParser()
+conf.optionxform = str
 conf.read(root_path / 'conf.ini')
 
 logging.config.fileConfig(root_path / 'log/conf.ini')

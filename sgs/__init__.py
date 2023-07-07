@@ -32,7 +32,7 @@ class HeroMgr:
         with open(file_path) as fin:
             doc = mistletoe.Document(fin)
             struct = get_ast(doc)
-            (root_path / 'page_cache/md.json').write_text(json.dumps(struct))
+            (root_path / 'page_cache/md.json').write_text(json.dumps(struct, indent=2))
             mgr = cls()
             for node in struct['children']:
                 mgr.process_node(node)

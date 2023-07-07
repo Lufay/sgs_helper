@@ -109,8 +109,13 @@ class GeneralBlock(Markdown):
     def __str__(self) -> str:
         return ''.join(str(c) for c in self)
     
+    def __getstate__(self):
+        self.contents = list(self.contents)
+        return vars(self)
+    
     def md_format(self, **kwargs):
-        return ''.join(c.md_format(**kwargs) if isinstance(c, Markdown) else str(c) for c in self)
+        return kwargs.pop('line_break', '').join(
+            c.md_format(**kwargs) if isinstance(c, Markdown) else str(c) for c in self)
     
     @classmethod
     def empty(cls, name):

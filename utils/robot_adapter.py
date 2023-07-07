@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+from itertools import chain, repeat
 import time
 
 import requests
@@ -18,7 +19,6 @@ def get_content_dict(content, at):
             }
         }
     elif isinstance(content, Hero):
-        title = content.bili_title or content.baike_title
         hp = f' {content.hp}/{content.hp_max}' if content.hp or content.hp_max else ''
         conts = []
         if at:
@@ -27,22 +27,16 @@ def get_content_dict(content, at):
             f'性别: {content.gender}',
             f'势力: {content.camp.value}',
             f'定位: {content.position}',
-            f'十周年技能:  \n{content.bili_skill_str}',
-            '***',
-            f'百科技能: \n{content.baike_skill_str}',
-            '***',
-            *(c.md_format() for c in content.contents),
-            '***',
-            f'十周年台词:  \n{content.bili_lines_str}',
-            '***',
-            f'百科台词: \n{content.baike_line_str}'
+            '技能: ', *chain(*zip(filter(None, content.skills), repeat('***'))),
+            *(c.md_format(line_break='\n') for c in content.contents),
+            '台词: ', *chain(*zip(repeat('***'), filter(None, content.lines))),
         ])
         return {
             'msg_type': 'interactive',
             'card': {
                 'header': {
                     'title': {
-                        'content': f'{content.pack} {content.name}{hp} {title}',
+                        'content': f'{content.pack} {content.name}{hp} {content.title}',
                         'tag': "plain_text"
                     }
                 },

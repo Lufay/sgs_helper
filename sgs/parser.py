@@ -6,11 +6,20 @@ import logging
 import operator
 from typing import List
 
-from .crawler import UList, crawl, baike_crawl, Img, GeneralBlock, Text, Table, Header, Caption
+from .crawler import B, UList, crawl, baike_crawl, Img, GeneralBlock, Text, Table, Header, Caption
 
 class Parser(ABC):
     @abstractmethod
     def crawl_parse(self, name): ...
+    @property
+    @abstractmethod
+    def skills(self): yield
+    @property
+    @abstractmethod
+    def lines(self): yield
+    @property
+    @abstractmethod
+    def title(self): return ''
 
     @cached_property
     def alias_mapper(self):
@@ -27,27 +36,32 @@ class Parser(ABC):
 class BaiduBaikeParser(Parser):
     baike_title:str = field(default='', init=False, metadata={'alias': '称号'})
     game_mode: str = field(default='', init=False, metadata={'alias':('模式', '出现模式')})
-    card_id: str = field(default='', init=False, metadata={'alias': '编号'})
+    card_id: str = field(default='', init=False, metadata={'alias': ('编号', '武将编号')})
     baike_skill_names: list = field(default_factory=list, init=False, metadata={'alias': ('技能名称', '名称')})
     baike_skill_descs: list = field(default_factory=list, init=False, metadata={'alias': ('技能描述', '描述', '技能信息')})
     baike_lines: list = field(default_factory=list, init=False)
     baike_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
     baike_line_ver: str = field(default='', init=False, metadata={'md_key': ''})
-    module_name: str = field(default='', init=False, repr=False)
-    sub_mod_name: str = field(default='', init=False, repr=False)
-    sub_module: dict = field(default_factory=dict, init=False, repr=False)
+
+    name = '百度百科'
 
     @property
-    def baike_skill_str(self):
+    def skills(self):
         skills = []
         for name, desc in zip(self.baike_skill_names, self.baike_skill_descs):
             b = Text(name, 'b')
             skills.append(UList('li', [b, ' ', desc]))
-        return UList('ul', skills).md_format()
+        yield f'{BaiduBaikeParser.name}  \n' + UList('ul', skills).md_format()
+        yield from super().skills
     
     @property
-    def baike_line_str(self):
-        return UList('ul', [UList('li', (line,)) for line in self.baike_lines]).md_format()
+    def lines(self):
+        yield f'{BaiduBaikeParser.name}  \n' + UList('ul', [UList('li', (line,)) for line in self.baike_lines]).md_format()
+        yield from super().lines
+
+    @property
+    def title(self):
+        return self.baike_title or super().title
 
     @abstractmethod
     def set_image_author(self, author): ...
@@ -71,6 +85,8 @@ class BaiduBaikeParser(Parser):
 
     def crawl_parse(self, name):
         if self.baike_skill_ver != 'none' and not self.baike_skill_names:
+            self.sub_mod_name = ''
+            self.sub_module = {}
             for node in baike_crawl(name):
                 if node:
                     match node:
@@ -78,7 +94,6 @@ class BaiduBaikeParser(Parser):
                             self.parse_basic_info(node)
                         case Header(t):
                             self.new_sub_mod(t)
-                            self.module_name = t
                         case _ if self.sub_mod_name in self.sub_module:
                             self.parse_module_item(node)
             self.new_sub_mod('')
@@ -86,21 +101,23 @@ class BaiduBaikeParser(Parser):
                 if table.headers and (f_verkey := self.module_parsers.get(mod_name)):
                     len_header = len(table.headers)
                     f, self.ver_key = f_verkey
-                    self.ver = getattr(self, self.ver_key)
-                    if self.ver:
-                        headers = [str(h) for h in table.headers[1:]]
-                    else:
-                        headers = [str(h) for h in table.headers]
+                    ver = getattr(self, self.ver_key)
+                    headers = [str(h) for h in table.headers]
+                    if ver:
+                        try:
+                            ver_col_idx = headers.index('扩展包')
+                        except ValueError:
+                            ver_col_idx = 0
+                        headers = headers[ver_col_idx+1:]
                     for record in table.records:
                         assert len(record) == len_header
-                        f(headers, record)(self)
-                    del self.ver, self.ver_key
-            # self.clear_modules()
+                        if not ver or ver in str(record[ver_col_idx]):
+                            cols = record[ver_col_idx+1:] if ver else record
+                            f(headers, cols)(self)
+                            break
+                    del self.ver_key
+            del self.sub_mod_name, self.sub_module
         return super().crawl_parse(name)
-    
-    # def clear_modules(self):
-    #     self.module_name = self.sub_mod_name = ''
-    #     self.sub_module = {}
     
     def parse_basic_info(self, info:dict):
         if '武将称号' in info:
@@ -129,27 +146,37 @@ class BaiduBaikeParser(Parser):
         if name in self.module_parsers.keys():
             self.sub_module[name] = Table.empty('table')
 
-    def parse_abilities(self, headers:list, record: list):
-        if not self.ver or self.ver in str(record[0]):
-            cols = record[1:] if self.ver else record
-            for i, col in enumerate(cols):
-                col_name = headers[i]
-                if col_name == '画师':
-                    self.set_image_author(str(col))
-                elif self.ver_key == 'baike_line_ver':
-                    self.baike_lines = [str(d) for d in col if d]
-                elif fd := self.alias_mapper.get(col_name):
-                    val = str(col)
-                    if func := fd.metadata.get('val_trans'):
-                        val = func(val)
-                    if issubclass(fd.type, list):
-                        getattr(self, fd.name).append(val)
-                    else:
-                        setattr(self, fd.name, val)
+    def parse_abilities(self, headers:list, cols: list):
+        for i, col in enumerate(cols):
+            col_name = headers[i]
+            if col_name == '画师':
+                self.set_image_author(str(col))
+            elif col_name == '武将技能':
+                for block in col:
+                    if isinstance(block, GeneralBlock):
+                        name = ''
+                        descs = []
+                        for sub_b in block:
+                            if isinstance(sub_b, B):
+                                name = sub_b
+                            elif sub_b:
+                                descs.append(sub_b)
+                        self.baike_skill_names.append(name)
+                        self.baike_skill_descs.append(''.join(descs))
+            elif self.ver_key == 'baike_line_ver':
+                self.baike_lines = [str(d) for d in col if d]
+            elif fd := self.alias_mapper.get(col_name):
+                val = str(col)
+                if func := fd.metadata.get('val_trans'):
+                    val = func(val)
+                if issubclass(fd.type, list):
+                    getattr(self, fd.name).append(val)
+                else:
+                    setattr(self, fd.name, val)
     
-    def parse_images(self, headers:list, record: list):
+    def parse_images(self, headers:list, cols: list):
         print(f'image header len: {len(headers)} {headers}')
-        print(f'\trecord len: {len(record)}')
+        print(f'\trecord len: {len(cols)}')
 
 
 @dataclass(init=False, eq=False, match_args=False)
@@ -163,21 +190,29 @@ class BiligameParser(Parser):
     biligame_key: str = field(default='', init=False, metadata={'md_key': ''})
     biligame_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
 
+    name = 'Bili Game'
+
     @abstractmethod
     def set_image(self, image): ...
     @abstractmethod
     def set_image_author(self, author): ...
 
     @property
-    def bili_skill_str(self) -> str:
-        return self.to_str(self.bili_skills)
+    def skills(self):
+        yield f'{BiligameParser.name}  \n' + BiligameParser.to_ulist(self.bili_skills).md_format()
+        yield from super().skills
     
     @property
-    def bili_lines_str(self) -> str:
-        return self.to_str(self.bili_lines)
+    def lines(self):
+        yield f'{BiligameParser.name}  \n' + BiligameParser.to_ulist(self.bili_lines).md_format()
+        yield from super().lines
+
+    @property
+    def title(self):
+        return self.bili_title or super().title
     
     @staticmethod
-    def to_str(lists):
+    def to_ulist(lists):
         secs = []
         sec = []
         for item in lists:
@@ -189,7 +224,7 @@ class BiligameParser(Parser):
             else:
                 sec.append(item)
         secs.append(UList('li', sec))
-        return UList('ul', secs).md_format()
+        return UList('ul', secs)
 
     def crawl_parse(self, name):
         if not self.biligame_pack and self.biligame_key != 'none':

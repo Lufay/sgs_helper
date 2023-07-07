@@ -1,10 +1,12 @@
 from enum import Enum
 from dataclasses import dataclass, field, fields
+import pickle
 from typing import List, Optional
 
 from .crawler import GeneralBlock, Img
-from .parser import BiligameParser, BaiduBaikeParser
+from . import parser
 from utils import classproperty
+from common import conf
 
 class Camp(Enum):
     UNKNOWN = '未知'
@@ -22,8 +24,14 @@ class Camp(Enum):
             return cls.UNKNOWN
 
 
+def hero_parsers(name, bases, attrd):
+    valid_parsers = (getattr(parser, parse_name) for parse_name, val in conf.items('HeroParser')
+                     if int(val) and hasattr(parser, parse_name))
+    return type(name, bases+tuple(valid_parsers), attrd)
+
+
 @dataclass
-class Hero(BiligameParser, BaiduBaikeParser):
+class Hero(metaclass=hero_parsers):
     pack: str
     name: str
     contents: List[GeneralBlock] = field(default_factory=list)
@@ -42,11 +50,45 @@ class Hero(BiligameParser, BaiduBaikeParser):
                 if (md_key := fd.metadata.get('md_key')) is not None}
         
     def crawl_by_name(self):
-        self.crawl_parse(self.name)
+        if isinstance(self, parser.Parser):
+            self.crawl_parse(self.name)
         return self
+    
+    def __getattr__(self, name):
+        if hasattr(parser.Parser, name):
+            return ''
+        return super().__getattr__(name)
+    
+    # @property
+    # def title(self):
+    #     if isinstance(self, parser.Parser):
+    #         return super().title
+    #     return ''
+    
+    # @property
+    # def skills(self):
+    #     if isinstance(self, parser.Parser):
+    #         yield from super().skills
+
+    # @property
+    # def lines(self):
+    #     if isinstance(self, parser.Parser):
+    #         yield from super().lines
     
     def set_image_author(self, author):
         self.image.author = author
 
     def set_image(self, image):
         self.image = image
+
+    def dump(self, file_path):
+        del self.alias_mapper
+        if not file_path.endswith('.pickle'):
+            file_path += self.name + '.pickle'
+        with open(file_path, 'wb') as wf:
+            pickle.dump(self, wf)
+
+    @staticmethod
+    def load(file_path):
+        with open(file_path, 'rb') as rf:
+            return pickle.load(rf)

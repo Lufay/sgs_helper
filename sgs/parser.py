@@ -116,10 +116,11 @@ class BaiduBaikeParser(Parser):
                         except ValueError:
                             ver_col_idx = 0
                         headers = headers[ver_col_idx+1:]
+                        vers = ver.split('|')
                     for record in table.records:
                         assert len(record) == len_header
-                        if not ver or (ver in (record_ver := str(record[ver_col_idx])) and \
-                                       both_in_or_not('国战', ver, record_ver)):
+                        if not ver or all(ver in (record_ver := str(record[ver_col_idx+i])) and \
+                                       both_in_or_not('国战', ver, record_ver) for i, ver in enumerate(vers)):
                             cols = record[ver_col_idx+1:] if ver else record
                             f(headers, cols)(self)
                     del self.ver_key

@@ -19,7 +19,7 @@ class Camp(Enum):
     @classmethod
     def get_value(cls, zn_name):
         try:
-            return cls(zn_name)
+            return cls(zn_name[0])
         except ValueError:
             return cls.UNKNOWN
 

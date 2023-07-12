@@ -8,6 +8,9 @@ from typing import List
 
 from .crawler import B, UList, crawl, baike_crawl, Img, GeneralBlock, Text, Table, Header, Caption
 
+def both_in_or_not(s, a, b):
+    return (s in a) == (s in b)
+
 class Parser(ABC):
     @abstractmethod
     def crawl_parse(self, name): ...
@@ -40,10 +43,14 @@ class BaiduBaikeParser(Parser):
     baike_skill_names: list = field(default_factory=list, init=False, metadata={'alias': ('技能名称', '名称')})
     baike_skill_descs: list = field(default_factory=list, init=False, metadata={'alias': ('技能描述', '描述', '技能信息')})
     baike_lines: list = field(default_factory=list, init=False)
+    baike_attr_ver: str = field(default='', init=False, metadata={'md_key': ''})
     baike_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
     baike_line_ver: str = field(default='', init=False, metadata={'md_key': ''})
 
     name = '百度百科'
+
+    @abstractmethod
+    def get_pack(self) -> str: ...
 
     @property
     def skills(self):
@@ -69,8 +76,8 @@ class BaiduBaikeParser(Parser):
     table_parser = lambda method_name: (lambda *args: operator.methodcaller(method_name, *args))
     module_parsers = {
         '能力设定': (table_parser('parse_abilities'), 'baike_skill_ver'),
-        '武将属性': (table_parser('parse_abilities'), 'baike_skill_ver'),
-        '属性': (table_parser('parse_abilities'), 'baike_skill_ver'),
+        '武将属性': (table_parser('parse_abilities'), 'baike_attr_ver'),
+        '属性': (table_parser('parse_abilities'), 'baike_attr_ver'),
         '武将技能': (table_parser('parse_abilities'), 'baike_skill_ver'),
         '技能': (table_parser('parse_abilities'), 'baike_skill_ver'),
 
@@ -111,10 +118,10 @@ class BaiduBaikeParser(Parser):
                         headers = headers[ver_col_idx+1:]
                     for record in table.records:
                         assert len(record) == len_header
-                        if not ver or ver in str(record[ver_col_idx]):
+                        if not ver or (ver in (record_ver := str(record[ver_col_idx])) and \
+                                       both_in_or_not('国战', ver, record_ver)):
                             cols = record[ver_col_idx+1:] if ver else record
                             f(headers, cols)(self)
-                            break
                     del self.ver_key
             del self.sub_mod_name, self.sub_module
         return super().crawl_parse(name)
@@ -196,6 +203,8 @@ class BiligameParser(Parser):
     def set_image(self, image): ...
     @abstractmethod
     def set_image_author(self, author): ...
+    @abstractmethod
+    def get_pack(self) -> str: ...
 
     @property
     def skills(self):
@@ -292,7 +301,7 @@ class BiligameParser(Parser):
                 continue
             if isinstance(line, str) and (sline := line.strip()):
                 if isinstance(line, Text) and line.__name__ == 'pack':
-                    if ('界' in self.pack) != ('界' in line):
+                    if not both_in_or_not('界', self.get_pack(), line):
                         return True
                 elif sline == '历史版本':
                     self.search_ver = True

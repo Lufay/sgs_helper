@@ -45,6 +45,8 @@ class Hero(metaclass=hero_parsers):
 
     @classproperty(1)
     def md_fields(cls):
+        '''md_key is the keyword in markdown file which field represents, default is field name
+        '''
         return {fd.name: md_key if md_key else fd.name
                 for fd in fields(cls)
                 if (md_key := fd.metadata.get('md_key')) is not None}
@@ -81,8 +83,12 @@ class Hero(metaclass=hero_parsers):
     def set_image(self, image):
         self.image = image
 
-    def dump(self, file_path):
-        del self.alias_mapper
+    def get_pack(self):
+        return self.pack
+
+    def dump(self, file_path: str):
+        if isinstance(self, parser.Parser):
+            del self.alias_mapper
         if not file_path.endswith('.pickle'):
             file_path += self.name + '.pickle'
         with open(file_path, 'wb') as wf:

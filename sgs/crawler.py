@@ -196,14 +196,7 @@ class Table(GeneralBlock):
                 case Table(__name__='th'):
                     self.headers.append(cont)
                 case Table(__name__='td'):
-                    if self.rowspan_cache and (top := self.rowspan_cache[0]).idx == col_idx:
-                        self.record.append(top)
-                        if top.cache_cnt > 1:
-                            top.cache_cnt -= 1
-                            self.rowspan_cache.rotate(-1)
-                        else:
-                            self.rowspan_cache.popleft()
-                        col_idx += 1
+                    col_idx = self._add_rowspan_cols(col_idx)
                     if cache_cnt := (int(cont.attrd.get('rowspan', 1)) - 1):
                         cont.cache_cnt = cache_cnt
                         cont.idx = col_idx
@@ -211,9 +204,21 @@ class Table(GeneralBlock):
                     for i in range(int(cont.attrd.get('colspan', 1))):
                         self.record.append(cont)
                         col_idx += 1
+                    col_idx = self._add_rowspan_cols(col_idx)
         if self.record:
             self.records.append(self.record)
             self.record = []
+
+    def _add_rowspan_cols(self, col_idx):
+        while self.rowspan_cache and (top := self.rowspan_cache[0]).idx == col_idx:
+            self.record.append(top)
+            if top.cache_cnt > 1:
+                top.cache_cnt -= 1
+                self.rowspan_cache.rotate(-1)
+            else:
+                self.rowspan_cache.popleft()
+            col_idx += 1
+        return col_idx
 
     @classmethod
     def empty(cls, name):
@@ -285,15 +290,16 @@ def baike_crawl(name):
         resp.raise_for_status()
         bs = BeautifulSoup(resp.text, 'html.parser')
         f.write_text(bs.prettify())
-    yield baike_basic_info(bs.find('div', class_='basic-info'))
-    module = bs.find('div', class_='anchor-list')
+    yield baike_basic_info(bs.find('div', class_=('basic-info', 'J-basic-info')))
+    anchor_classes = ('anchor-list', )
+    module = bs.find('div', class_=anchor_classes)
     while module and (node := module.find_next_sibling('div', class_='para-title')):
         title = get_module_title(node)
         yield Header(title)
         module = node
         while True:
             module = module.find_next_sibling(('div', 'table'))
-            if not module or 'anchor-list' in module.get('class', ()):
+            if not module or any(anchor in module.get('class', ()) for anchor in anchor_classes):
                 break
             yield from recur_node(module)
     

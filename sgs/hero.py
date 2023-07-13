@@ -40,7 +40,7 @@ class Hero(metaclass=hero_parsers):
     image: Optional[Img] = None
     gender: str = field(default='', metadata={'alias': '性别'})
     camp: Camp = field(default=Camp.UNKNOWN, metadata={'alias': '势力', 'val_trans': Camp.get_value})
-    position: List[str] = field(default_factory=list, metadata={'alias': '定位', 'anchor_num': 1})
+    position: List[str] = field(default_factory=list, metadata={'alias': ('定位', '武将定位'), 'anchor_num': 1})
     is_monarch: bool = False
 
     @classproperty(1)

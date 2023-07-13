@@ -3,8 +3,9 @@ from contextlib import contextmanager
 from dataclasses import Field, dataclass, field, fields
 from functools import cached_property
 import logging
-import operator
-from typing import List
+from typing import List, _GenericAlias, _SpecialGenericAlias
+
+from utils import classproperty
 
 from .crawler import B, UList, crawl, baike_crawl, Img, GeneralBlock, Text, Table, Header, Caption
 
@@ -34,11 +35,24 @@ class Parser(ABC):
                 else:
                     d[alias] = fd
         return d
+    
+    def set_field(self, fd:Field, val):
+        if func := fd.metadata.get('val_trans'):
+            val = func(val)
+        if isinstance(fd.type, (_GenericAlias, _SpecialGenericAlias)):
+            t = fd.type.__origin__
+        else:
+            t = fd.type
+        if issubclass(t, list):
+            getattr(self, fd.name).append(val)
+        else:
+            setattr(self, fd.name, val)
+
 
 @dataclass(init=False, eq=False, match_args=False)
 class BaiduBaikeParser(Parser):
     baike_title:str = field(default='', init=False, metadata={'alias': '称号'})
-    game_mode: str = field(default='', init=False, metadata={'alias':('模式', '出现模式')})
+    game_mode: str = field(default='', init=False, metadata={'alias':('模式', '出现模式', '所属模式')})
     card_id: str = field(default='', init=False, metadata={'alias': ('编号', '武将编号')})
     baike_skill_names: list = field(default_factory=list, init=False, metadata={'alias': ('技能名称', '名称')})
     baike_skill_descs: list = field(default_factory=list, init=False, metadata={'alias': ('技能描述', '描述', '技能信息')})
@@ -46,6 +60,7 @@ class BaiduBaikeParser(Parser):
     baike_attr_ver: str = field(default='', init=False, metadata={'md_key': ''})
     baike_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
     baike_line_ver: str = field(default='', init=False, metadata={'md_key': ''})
+    baike_image_ver: str = field(default='', init=False, metadata={'md_key': ''})
 
     name = '百度百科'
 
@@ -73,57 +88,59 @@ class BaiduBaikeParser(Parser):
     @abstractmethod
     def set_image_author(self, author): ...
 
-    table_parser = lambda method_name: (lambda *args: operator.methodcaller(method_name, *args))
-    module_parsers = {
-        '能力设定': (table_parser('parse_abilities'), 'baike_skill_ver'),
-        '武将属性': (table_parser('parse_abilities'), 'baike_attr_ver'),
-        '属性': (table_parser('parse_abilities'), 'baike_attr_ver'),
-        '武将技能': (table_parser('parse_abilities'), 'baike_skill_ver'),
-        '技能': (table_parser('parse_abilities'), 'baike_skill_ver'),
-
-        '武将台词': (table_parser('parse_abilities'), 'baike_line_ver'),
-        '角色台词': (table_parser('parse_abilities'), 'baike_line_ver'),
-        '语音台词': (table_parser('parse_abilities'), 'baike_line_ver'),
-        '台词': (table_parser('parse_abilities'), 'baike_line_ver'),
-
-        '角色专属': (table_parser('parse_images'), 'baike_line_ver'),
-        '皮肤': (table_parser('parse_images'), 'baike_line_ver'),
-    }
+    @classproperty(1)
+    def module_parsers(cls):
+        # table_parser = lambda method_name: (lambda *args: operator.methodcaller(method_name, *args))
+        keys = {
+            'attr': ('属性', '武将属性', '卡牌属性'),
+            'skill': ('能力设定', '技能', '武将技能'),
+            'line': ('台词', '武将台词', '角色台词', '语音台词'),
+            'image': ('角色专属', '皮肤', '武将皮肤')
+        }
+        parser_mapper = {name:val for name, val in vars(BaiduBaikeParser).items() if name.startswith('parse_')}
+        # table_parser(f'parse_{key_type}s' if f'parse_{key_type}s' in parser_names else 'parse_abilities')
+        return {key: (parser_mapper.get(f'parse_{key_type}s', cls.parse_abilities), f'baike_{key_type}_ver')
+                for key_type, key_tuple in keys.items()
+                for key in key_tuple}
 
     def crawl_parse(self, name):
         if self.baike_skill_ver != 'none' and not self.baike_skill_names:
             self.sub_mod_name = ''
             self.sub_module = {}
+            # fill sub_module
             for node in baike_crawl(name):
                 if node:
                     match node:
                         case dict():
                             self.parse_basic_info(node)
-                        case Header(t):
+                        case Header(t) | Caption(t):
                             self.new_sub_mod(t)
-                        case _ if self.sub_mod_name in self.sub_module:
-                            self.parse_module_item(node)
+                        case Table() if self.sub_mod_name in self.sub_module:
+                            self.sub_module[self.sub_mod_name].contents.append(node)
             self.new_sub_mod('')
+            # consume sub_module
             for mod_name, table in self.sub_module.items():
-                if table.headers and (f_verkey := self.module_parsers.get(mod_name)):
-                    len_header = len(table.headers)
-                    f, self.ver_key = f_verkey
-                    ver = getattr(self, self.ver_key)
-                    headers = [str(h) for h in table.headers]
+                if f_verkey := self.module_parsers.get(mod_name):
+                    headers = [str(h) for h in table.headers] if table.headers else ()
+                    len_header = len(headers)
+                    f, ver_key = f_verkey
+                    ver = getattr(self, ver_key)
                     if ver:
                         try:
                             ver_col_idx = headers.index('扩展包')
                         except ValueError:
                             ver_col_idx = 0
-                        headers = headers[ver_col_idx+1:]
+                        if headers:
+                            headers = headers[ver_col_idx+1:]
                         vers = ver.split('|')
                     for record in table.records:
-                        assert len(record) == len_header
+                        if len_header:
+                            assert len(record) == len_header
                         if not ver or all(ver in (record_ver := str(record[ver_col_idx+i])) and \
                                        both_in_or_not('国战', ver, record_ver) for i, ver in enumerate(vers)):
                             cols = record[ver_col_idx+1:] if ver else record
-                            f(headers, cols)(self)
-                    del self.ver_key
+                            # f(headers, cols)(self)
+                            f(self, headers, cols)
             del self.sub_mod_name, self.sub_module
         return super().crawl_parse(name)
     
@@ -135,17 +152,7 @@ class BaiduBaikeParser(Parser):
             del info['技能']
         for alias, fd in self.alias_mapper.items():
             if alias in info:
-                val = info[alias]
-                if func := fd.metadata.get('val_trans'):
-                    val = func(val)
-                setattr(self, fd.name, val)
-
-    def parse_module_item(self, item):
-        match item:
-            case Caption(t):
-                self.new_sub_mod(t)
-            case Table():
-                self.sub_module[self.sub_mod_name].contents.append(item)
+                self.set_field(fd, info[alias])
 
     def new_sub_mod(self, name):
         if self.sub_mod_name and (table := self.sub_module.get(self.sub_mod_name)):
@@ -171,16 +178,12 @@ class BaiduBaikeParser(Parser):
                                 descs.append(sub_b)
                         self.baike_skill_names.append(name)
                         self.baike_skill_descs.append(''.join(descs))
-            elif self.ver_key == 'baike_line_ver':
-                self.baike_lines = [str(d) for d in col if d]
             elif fd := self.alias_mapper.get(col_name):
-                val = str(col)
-                if func := fd.metadata.get('val_trans'):
-                    val = func(val)
-                if issubclass(fd.type, list):
-                    getattr(self, fd.name).append(val)
-                else:
-                    setattr(self, fd.name, val)
+                self.set_field(fd, str(col))
+
+    def parse_lines(self, headers:list, cols: list):
+        self.baike_lines = [str(d) for col in cols
+                            for d in col if d]
     
     def parse_images(self, headers:list, cols: list):
         print(f'image header len: {len(headers)} {headers}')

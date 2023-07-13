@@ -8,7 +8,7 @@ conf = ConfigParser()
 conf.optionxform = str
 conf.read(root_path / 'conf.ini')
 
-logging.config.fileConfig(root_path / 'log/conf.ini')
+logging.config.fileConfig(root_path / 'log/log_conf.ini')
 
 runtime_env = {}
 

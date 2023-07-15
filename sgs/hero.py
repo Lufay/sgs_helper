@@ -78,7 +78,8 @@ class Hero(metaclass=hero_parsers):
     #         yield from super().lines
     
     def set_image_author(self, author):
-        self.image.author = author
+        if self.image:
+            self.image.author = author
 
     def set_image(self, image):
         self.image = image

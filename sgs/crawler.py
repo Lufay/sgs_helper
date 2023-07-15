@@ -1,5 +1,7 @@
+from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Iterator
+from functools import cached_property
 from itertools import tee
 import sys
 import inspect
@@ -291,17 +293,12 @@ def baike_crawl(name):
         bs = BeautifulSoup(resp.text, 'html.parser')
         f.write_text(bs.prettify())
     yield baike_basic_info(bs.find('div', class_=('basic-info', 'J-basic-info')))
-    anchor_classes = ('anchor-list', )
-    module = bs.find('div', class_=anchor_classes)
-    while module and (node := module.find_next_sibling('div', class_='para-title')):
-        title = get_module_title(node)
+    baike_anchor:BaikeAnchor = BaikeAnchor.detect_anchor(bs)
+    while baike_anchor and (header := baike_anchor.get_title_block()):
+        title = ''.join(cs for c in header.children
+                        if isinstance(c, NavigableString) and (cs := c.strip()))
         yield Header(title)
-        module = node
-        while True:
-            module = module.find_next_sibling(('div', 'table'))
-            if not module or any(anchor in module.get('class', ()) for anchor in anchor_classes):
-                break
-            yield from recur_node(module)
+        yield from baike_anchor.iter_siblings()
     
 def baike_basic_info(div: Tag):
     basic_info = {}
@@ -314,8 +311,75 @@ def baike_basic_info(div: Tag):
             cur = nxt.find_next_sibling('dt')
     return basic_info
 
-def get_module_title(module: Tag):
-    header = module.find(('h2', 'h3'), class_='title-text')
-    if not header:
-        return
-    return ''.join(cs for c in header.children if isinstance(c, NavigableString) and (cs := c.strip()))
+
+class BaikeAnchor(ABC):
+    def __init__(self, block: Tag, anchor_class:str):
+        self.block = block
+        self.anchor_class = anchor_class
+
+    def __bool__(self):
+        return bool(self.block)
+
+    @abstractmethod
+    def get_title_block(self): ...
+    @property
+    @abstractmethod
+    def next_tag_name(self): ...
+    @staticmethod
+    @abstractmethod
+    def process_next_block(block:Tag): ...
+
+    def iter_siblings(self):
+        block = self.block.find_next_sibling(self.next_tag_name)
+        while block and self.anchor_class not in block.get('class', ()):
+            yield from self.__class__.process_next_block(block)
+            block = block.find_next_sibling(self.next_tag_name)
+        self.block = block
+
+    @classmethod
+    def detect_anchor(cls, bs: Tag):
+        for subcls in cls.__subclasses__():
+            if ins := subcls.detect_anchor(bs):
+                return ins
+
+
+class FixedBaikeAnchor(BaikeAnchor):
+    FIXED_CLASS = 'anchor-list'
+    process_next_block = recur_node
+        
+    @classmethod
+    def detect_anchor(cls, bs: Tag):
+        if module := bs.find('div', class_=cls.FIXED_CLASS):
+            return cls(module, cls.FIXED_CLASS)
+        
+    def get_title_block(self):
+        if node := self.block.find_next_sibling('div', class_='para-title'):
+            self.block = node
+            return node.find(('h2', 'h3'), class_='title-text')
+        
+    @cached_property
+    def next_tag_name(self):
+        return ('div', 'table')
+
+        
+class DynamicBaikeAnchor(BaikeAnchor):
+    CLASS_PREFIX = 'paraTitle_'
+
+    @classmethod
+    def detect_anchor(cls, bs: Tag):
+        if module := bs.find('div', class_=lambda c: c and c.startswith(cls.CLASS_PREFIX)):
+            for name in module['class']:
+                if name.startswith(cls.CLASS_PREFIX):
+                    return cls(module, name)
+
+    def get_title_block(self):
+        return self.block.find(('h2', 'h3'))    # , {"name": str.isdigit}
+    
+    @cached_property
+    def next_tag_name(self):
+        return 'div'
+    
+    @staticmethod
+    def process_next_block(block: Tag):
+        if block.get('data-module-type', '') == 'table':
+            yield from recur_node(block.find('table'))

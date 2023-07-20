@@ -90,8 +90,8 @@ class Img(Markdown):
 
 
 class GeneralBlock(Markdown):
-    BLACK_NAMES = {'style', 'script', 'sup'}
-    WHITE_NAMES = {'div', 'p', 'span', 'hr', 'h2', 'h3', 'a', }
+    BLACK_NAMES = {'style', 'script', 'sup', 'rp', 'rt'}
+    WHITE_NAMES = {'div', 'p', 'span', 'hr', 'h2', 'h3', 'a', 'ruby', 'rb'}
     BLACK_CLASSES = {'btn', 'desc-color', 'wiki-bot'}
     def __init__(self, name, contents, classes=()):
         if name in self.BLACK_NAMES or self.BLACK_CLASSES.intersection(classes):

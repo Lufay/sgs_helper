@@ -36,7 +36,7 @@ class Hero(metaclass=hero_parsers):
     name: str
     contents: List[GeneralBlock] = field(default_factory=list)
     hp: int = field(default=0, metadata={'alias': '勾玉', 'val_trans': int})
-    hp_max: int = field(default=0, metadata={'alias': '体力', 'val_trans': lambda s: int(s.partition('勾玉')[0])})
+    hp_max: int = field(default=0, metadata={'alias': ('体力', '体力上限'), 'val_trans': lambda s: int(s.partition('勾玉')[0])})
     image: Optional[Img] = None
     gender: str = field(default='', metadata={'alias': '性别'})
     camp: Camp = field(default=Camp.UNKNOWN, metadata={'alias': '势力', 'val_trans': Camp.get_value})

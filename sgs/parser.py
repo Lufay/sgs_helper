@@ -55,9 +55,9 @@ class Parser(ABC):
 class BaiduBaikeParser(Parser):
     baike_title:str = field(default='', init=False, metadata={'alias': '称号'})
     game_mode: str = field(default='', init=False, metadata={'alias':('模式', '出现模式', '所属模式', '适用模式')})
-    card_id: str = field(default='', init=False, metadata={'alias': ('编号', '武将编号')})
+    card_id: str = field(default='', init=False, metadata={'alias': ('编号', '武将编号', '卡牌编号')})
     baike_skill_names: list = field(default_factory=list, init=False, metadata={'alias': ('技能名称', '名称')})
-    baike_skill_descs: list = field(default_factory=list, init=False, metadata={'alias': ('技能描述', '描述', '技能信息')})
+    baike_skill_descs: list = field(default_factory=list, init=False, metadata={'alias': ('技能描述', '描述', '技能信息', '技能介绍')})
     baike_lines: list = field(default_factory=list, init=False)
     baike_attr_ver: str = field(default='', init=False, metadata={'md_key': ''})
     baike_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
@@ -77,7 +77,8 @@ class BaiduBaikeParser(Parser):
     
     @property
     def lines(self):
-        yield f'{BaiduBaikeParser.name}  \n' + UList('ul', [UList('li', (line,)) for line in self.baike_lines]).md_format()
+        yield f'{BaiduBaikeParser.name}  \n' + UList(
+            'ul', [UList('li', line) for line in self.baike_lines]).md_format(line_break=': ')
         yield from super().lines
 
     @property
@@ -165,7 +166,7 @@ class BaiduBaikeParser(Parser):
             col_name = headers[i]
             if col_name == '画师':
                 self.set_image_author(str(col))
-            elif col_name == '武将技能':
+            elif col_name in ('武将技能', '技能'):
                 for block in col:
                     if isinstance(block, GeneralBlock):
                         name = ''
@@ -186,8 +187,16 @@ class BaiduBaikeParser(Parser):
                 self.set_field(fd, str(col))
 
     def parse_lines(self, headers:list, cols: list):
-        self.baike_lines = [str(d) for col in cols
-                            for d in col if d]
+        lines = []
+        for col in cols:
+            len_line = len(lines)
+            for i, block in enumerate(col):
+                line = [sub_b if isinstance(sub_b, str) else str(sub_b) for sub_b in block]
+                if i < len_line:
+                    lines[i].extend(line)
+                else:
+                    lines.append(line)
+        self.baike_lines.extend(lines)
     
     def parse_images(self, headers:list, cols: list):
         print(f'image header len: {len(headers)} {headers}')

@@ -29,6 +29,8 @@ class Parser(ABC):
 
     @cached_property
     def alias_mapper(self):
+        '''别名到field 的映射, 支持多个别名
+        '''
         d = {}
         for fd in fields(self):
             if alias := fd.metadata.get('alias'):
@@ -39,6 +41,8 @@ class Parser(ABC):
         return d
     
     def set_field(self, fd:Field, val):
+        '''field 赋值器, 支持值转换函数
+        '''
         if func := fd.metadata.get('val_trans'):
             val = func(val)
         if isinstance(fd.type, (_GenericAlias, _SpecialGenericAlias)):
@@ -104,6 +108,12 @@ class BaiduBaikeParser(Parser):
                 for key in key_tuple}
 
     def crawl_parse(self, name):
+        '''处理baike_crawl 抓取的每个节点, 分成两步:
+        1. 处理基本信息 & 做模块映射(module_name -> module table)
+        2. 逐模块(table)处理: 通过版本指示来决定生效行
+
+        通过baike_skill_names 做幂等
+        '''
         if self.baike_skill_ver != 'none' and not self.baike_skill_names:
             self.sub_mod_name = ''
             self.sub_module = {}
@@ -155,6 +165,8 @@ class BaiduBaikeParser(Parser):
                 self.set_field(fd, info[alias])
 
     def new_sub_mod(self, name):
+        '''探测到一个新的模块名, 就将前一个模块table 进行收集, 并生成一个新的空模块table
+        '''
         if self.sub_mod_name and (table := self.sub_module.get(self.sub_mod_name)):
             table.iter_children(table.contents)
         self.sub_mod_name = name
@@ -162,6 +174,10 @@ class BaiduBaikeParser(Parser):
             self.sub_module[name] = Table.empty('table')
 
     def parse_abilities(self, headers:list, cols: list):
+        '''通用模块table 处理器
+        header 是已经字符串化的表头内容
+        cols 是命中ver的这一行的各列原生内容的列表
+        '''
         for i, col in enumerate(cols):
             col_name = headers[i]
             if col_name == '画师':
@@ -187,6 +203,10 @@ class BaiduBaikeParser(Parser):
                 self.set_field(fd, str(col))
 
     def parse_lines(self, headers:list, cols: list):
+        '''台词模块table 处理器
+        header 是已经字符串化的表头内容(不消费)
+        cols 是命中ver的这一行的各列原生内容的列表
+        '''
         lines = []
         for col in cols:
             len_line = len(lines)
@@ -199,6 +219,9 @@ class BaiduBaikeParser(Parser):
         self.baike_lines.extend(lines)
     
     def parse_images(self, headers:list, cols: list):
+        '''皮肤模块table 处理器
+        TODO: Implement
+        '''
         print(f'image header len: {len(headers)} {headers}')
         print(f'\trecord len: {len(cols)}')
 
@@ -237,6 +260,8 @@ class BiligameParser(Parser):
     
     @staticmethod
     def to_ulist(lists):
+        '''将bili_skills, bili_lines 这种特殊的层级栈结构转换为Ulist
+        '''
         secs = []
         sec = []
         for item in lists:
@@ -252,6 +277,11 @@ class BiligameParser(Parser):
         return UList('ul', secs)
 
     def crawl_parse(self, name):
+        '''先解析表头, 再解析指定版本的表体
+        缓存是否已解析过表头, 避免重复调用parse_header
+
+        通过biligame_pack做幂等
+        '''
         if not self.biligame_pack and self.biligame_key != 'none':
             not_p_header = True
             try:
@@ -270,6 +300,8 @@ class BiligameParser(Parser):
         del self.key, self.hit_alias, self.anchor
     
     def alias_matcher(self, sline):
+        '''叶子节点: 识别alias, 将field赋值给key; 根据key 给对应的field 赋值 
+        '''
         if hasattr(self, 'hit_alias') and self.hit_alias == sline:
             return
         match getattr(self, 'key', None):
@@ -295,6 +327,9 @@ class BiligameParser(Parser):
                         break
 
     def parse_header(self, headers):
+        '''解析表头
+        由于表头无明显标识, 只能边解析, 边确认是否是表头
+        '''
         skip = True
         for line in headers:
             if not line:
@@ -312,6 +347,10 @@ class BiligameParser(Parser):
         return skip
 
     def parse_module(self, mod):
+        '''递归解析每个锚点块
+        叶子节点(str, image)交给alias_matcher
+        非叶子节点(table, div)进行递归(借助anchor构建层级list)
+        '''
         for line in mod:
             if not line:
                 continue
@@ -328,6 +367,14 @@ class BiligameParser(Parser):
                         self.search_ver = False
                     continue
                 self.alias_matcher(sline)
+            elif isinstance(line, Img):
+                if '形象' in line.alt:
+                    self.set_image(line)
+                    self.key = 'author'
+                    self.hit_alias = '形象'
+                    self.anchor = Anchor()
+                else:
+                    self.alias_matcher(line.alt.strip())
             elif isinstance(line, Table) and line.__name__ == 'table':
                 if hasattr(self, 'anchor') and self.anchor.level >= 0:
                     self.anchor.running = False
@@ -344,17 +391,12 @@ class BiligameParser(Parser):
                 with getattr(self, 'anchor', Anchor.get_ins())(line.classes, self.clear_alias_key):
                     if self.parse_module(line):
                         return True
-            elif isinstance(line, Img):
-                if '形象' in line.alt:
-                    self.set_image(line)
-                    self.key = 'author'
-                    self.hit_alias = '形象'
-                    self.anchor = Anchor()
-                else:
-                    self.alias_matcher(line.alt.strip())
 
 
 class Anchor:
+    '''带层级栈的辅助构造单例类
+    层级栈是一个list, 这个list 可以嵌套list 从而形成层级，或者说形成一颗树，而树的叶子节点就是一个字符串
+    '''
     _ins = None
     
     def __new__(cls, *args, **kwargs):
@@ -362,11 +404,21 @@ class Anchor:
     
     @classmethod
     def get_ins(cls):
+        '''仅获取单例
+        单例未初始化时不要使用
+        '''
         if cls._ins is None:
             cls._ins = object.__new__(cls)
         return cls._ins
     
     def __init__(self, level=-1, stack=None, sections=None):
+        '''获取单例并初始化
+        level: 当前的层级, 负值则anchor 无效
+        stack: 当前的栈顶list
+        sections: 由tag.class 构成的序列，当发现命中时，序列索引+1, 栈升高一层
+        sec_idx: sections 的当前待命中索引
+        running: anchor 功能的控制开关。当关闭时，不再进行层级计数和升栈
+        '''
         self.level = level
         self.stack = stack
         self.sections = sections
@@ -375,6 +427,10 @@ class Anchor:
 
     @contextmanager
     def __call__(self, classes, cf):
+        '''anchor 的核心功能：层级计数和升栈
+        classes: 当前tag的class 元组
+        cf: anchor 失效(level降维负)后的清理操作
+        '''
         if self.running:
             ori_stack = None
             if self.level >= 0:

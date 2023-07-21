@@ -10,6 +10,8 @@ from sgs.hero import Hero
 
 
 def get_content_dict(content, at):
+    '''识别content 类型构造符合robot json格式的message
+    '''
     if isinstance(content, (int, float, str)):
         at_str = f'<at user_id="">{at}</at> ' if at else ''
         return {

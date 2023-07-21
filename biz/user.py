@@ -9,6 +9,9 @@ from typing import MappingView, Optional
 
 @dataclass
 class Record:
+    '''一条游戏记录
+    游戏模式; 游戏角色; 记录时间
+    '''
     game_mode: str
     role: str
     r_time: datetime = datetime.now()
@@ -21,6 +24,12 @@ class Record:
 
 @dataclass
 class User:
+    '''用户的相关记录：
+    records: r_key -> Record 的映射
+    last_record_time: 最近一次记录时间
+    luck_consumed: 已消费的手气卡数量
+    rep_consumed: 已消费的换将卡数量
+    '''
     name: str
     records: dict = field(default_factory=dict)
     last_record_time: Optional[datetime] = None
@@ -38,10 +47,14 @@ class User:
         
     @property
     def luck_num(self):
+        '''手气卡数量 = 获胜记录数 - 已消费的手气卡数
+        '''
         return len(self.records) - self.luck_consumed
     
     @property
     def rep_num(self):
+        '''换将卡数量 = 获胜记录数 - 已消费的换将卡数
+        '''
         return len(self.records) - self.rep_consumed
     
     def __get_state__(self):

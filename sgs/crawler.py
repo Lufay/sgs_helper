@@ -12,10 +12,15 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from common import root_path
 
 class Markdown:
+    '''支持markdown 格式化的基类
+    '''
     def md_format(self, **kwargs):
         return str(self)
 
 class Text(str, Markdown):
+    '''文本类型的基类
+    在构造时, 会根据name决定返回的具体子类
+    '''
     def __new__(cls, text='', name='', *args, **kwargs):
         cls = dict(cls.local_subclasses).get(name, cls)
         return super().__new__(cls, text)
@@ -36,12 +41,16 @@ class Text(str, Markdown):
 
 
 class I(Text):
+    '''斜体文本
+    '''
     def md_format(self, **kwargs):
         s = super().md_format(**kwargs)
         return f'*{s}*' if s else ''
 
     
 class Font(Text):
+    '''带格式的文本
+    '''
     def md_format(self, **kwargs):
         t = Tag(name=self.__name__, attrs=self.attrs)
         t.append(BeautifulSoup().new_string(super().md_format(**kwargs)))
@@ -49,20 +58,28 @@ class Font(Text):
 
 
 class B(Text):
+    '''粗体文本
+    '''
     def md_format(self, **kwargs):
         s = super().md_format(**kwargs)
         return f'**{s}**' if s else ''
 
 
 class Header(Text):
+    '''标题文本
+    '''
     def md_format(self, **kwargs):
         level = kwargs.pop('level', 1)
         return '#' * level + ' ' + super().md_format(**kwargs)
     
 class Caption(Text):
+    '''表格标题文本
+    '''
     pass
 
 class Img(Markdown):
+    '''img 标签
+    '''
     DEFAULT_SRC = '1x'
     def __init__(self, tag:Tag|dict, author=None):
         self.img_src_set = {self.DEFAULT_SRC: tag["src"]}
@@ -90,6 +107,11 @@ class Img(Markdown):
 
 
 class GeneralBlock(Markdown):
+    '''通用块标签
+    BLACK_NAMES: 忽略的标签名
+    BLACK_CLASSES: 带有这里面class 的tag 会忽略
+    WHITE_NAMES: 支持的标签名(不支持且未忽略会assert 报错)
+    '''
     BLACK_NAMES = {'style', 'script', 'sup', 'rp', 'rt'}
     WHITE_NAMES = {'div', 'p', 'span', 'hr', 'h2', 'h3', 'a', 'ruby', 'rb'}
     BLACK_CLASSES = {'btn', 'desc-color', 'wiki-bot'}
@@ -102,6 +124,9 @@ class GeneralBlock(Markdown):
         self.classes = classes
 
     def __iter__(self):
+        '''可重用迭代contents
+        不要直接使用contents 遍历, 因为迭代器或生成器, 无法重复使用
+        '''
         if inspect.isgenerator(self.contents) or isinstance(self.contents, Iterator):
             a, b = tee(self.contents)
             self.contents = a
@@ -112,15 +137,22 @@ class GeneralBlock(Markdown):
         return ''.join(str(c) for c in self)
     
     def __getstate__(self):
+        '''pickle.dump 会序列化contents
+        '''
         self.contents = list(self.contents)
         return vars(self)
     
     def md_format(self, **kwargs):
+        '''使用line_break 将contents 串联起来
+        若支持markdown, 则使用markdown 格式化; 否则则直接使用字符串化
+        '''
         return kwargs.pop('line_break', '').join(
             c.md_format(**kwargs) if isinstance(c, Markdown) else str(c) for c in self)
     
     @classmethod
     def empty(cls, name):
+        '''跳过name 检查, 生成一个空实例
+        '''
         ins = cls.__new__(cls)
         ins.__name__ = name
         ins.contents = []
@@ -129,6 +161,8 @@ class GeneralBlock(Markdown):
 
 
 class UList(GeneralBlock):
+    '''无序列表块
+    '''
     WHITE_NAMES = {'ul', 'li'}
     def __init__(self, name, contents, leader='+'):
         super().__init__(name, contents)
@@ -148,6 +182,8 @@ class UList(GeneralBlock):
 
     @classmethod
     def copy_from_block(cls, name, block, leader='+'):
+        '''将一个GeneralBlock 实例转换为为一个本实例
+        '''
         assert isinstance(block, GeneralBlock)
         ins = cls.__new__(cls)
         ins.__name__ = name
@@ -157,6 +193,9 @@ class UList(GeneralBlock):
     
     @classmethod
     def list_collect(cls, blocks):
+        '''将blocks 中连续的li 元素聚集成一个ul 元素, 其他元素则原样返回
+        返回一个生成器
+        '''
         lis = []
         for block in blocks:
             if isinstance(block, cls) and block.__name__ == 'li':
@@ -171,6 +210,8 @@ class UList(GeneralBlock):
 
 
 class Table(GeneralBlock):
+    '''table 块内的相关元素
+    '''
     WHITE_NAMES = {'table', 'thead', 'tbody', 'tr', 'th', 'td'}
     def __init__(self, name, contents, **kwargs):
         classes = kwargs.pop('class', ())
@@ -184,7 +225,9 @@ class Table(GeneralBlock):
             self.iter_children(contents)
 
     def iter_children(self, children):
-        '''only table to run
+        '''将单元格每一格th 和 td 的内容放入headers 和 records
+        only table tag to run
+        支持rowspan和colspan(缓存内容实例, 并放到span的每一个位置)
         '''
         col_idx = 0
         for cont in children:
@@ -212,6 +255,8 @@ class Table(GeneralBlock):
             self.record = []
 
     def _add_rowspan_cols(self, col_idx):
+        '''应用rowspan 缓存, 左侧队列头, 右侧队列尾
+        '''
         while self.rowspan_cache and (top := self.rowspan_cache[0]).idx == col_idx:
             self.record.append(top)
             if top.cache_cnt > 1:
@@ -224,6 +269,9 @@ class Table(GeneralBlock):
 
     @classmethod
     def empty(cls, name):
+        '''生成一个空的实例
+        当内容填充完毕后, 手动调用iter_children
+        '''
         ins = super().empty(name)
         if name == 'table':
             ins.headers = []
@@ -234,6 +282,9 @@ class Table(GeneralBlock):
 
 
 def crawl(name):
+    '''biligame 抓取器, 并做页面缓存
+    通过recur_node 将关注的tag 转换为内部类型的生成器
+    '''
     f = root_path / f'page_cache/biligame/{name}.html'
     if f.is_file():
         bs = BeautifulSoup(f.read_text(), 'html.parser')
@@ -246,6 +297,8 @@ def crawl(name):
 
 
 def recur_node(node:Tag):
+    '''递归将指定tag 下的所有内容转换为内部类型的生成器
+    '''
     for block in node.children:
         match block:
             case NavigableString():
@@ -273,6 +326,9 @@ def recur_node(node:Tag):
 
 
 def baike_crawl(name):
+    '''baidu baike 抓取器, 并做页面缓存(缓存的是三国杀武将页，而不是默认人物页)
+    依次生成基本信息(dict)、锚点头(Header)、锚点体(table)
+    '''
     f = root_path / f'page_cache/baidu_baike/{name}.html'
     if f.is_file():
         bs = BeautifulSoup(f.read_text(), 'html.parser')
@@ -301,6 +357,8 @@ def baike_crawl(name):
         yield from baike_anchor.iter_siblings()
     
 def baike_basic_info(div: Tag):
+    '''根据基本信息tag 返回dict
+    '''
     basic_info = {}
     for dl in div.find_all('dl'):
         cur:Tag = dl.dt
@@ -313,6 +371,8 @@ def baike_basic_info(div: Tag):
 
 
 class BaikeAnchor(ABC):
+    '''baidu baike 锚点基类
+    '''
     def __init__(self, block: Tag, anchor_class:str):
         self.block = block
         self.anchor_class = anchor_class
@@ -330,6 +390,8 @@ class BaikeAnchor(ABC):
     def process_next_block(block:Tag): ...
 
     def iter_siblings(self):
+        '''遍历锚点体兄弟节点, 直到发现下一个锚点或者没兄弟为止
+        '''
         block = self.block.find_next_sibling(self.next_tag_name)
         while block and self.anchor_class not in block.get('class', ()):
             yield from self.__class__.process_next_block(block)
@@ -338,12 +400,16 @@ class BaikeAnchor(ABC):
 
     @classmethod
     def detect_anchor(cls, bs: Tag):
+        '''根据锚点结构样式, 返回一个具体的子类实例
+        '''
         for subcls in cls.__subclasses__():
             if ins := subcls.detect_anchor(bs):
                 return ins
 
 
 class FixedBaikeAnchor(BaikeAnchor):
+    '''固定class的锚点类型
+    '''
     FIXED_CLASS = 'anchor-list'
     process_next_block = recur_node
         
@@ -363,6 +429,8 @@ class FixedBaikeAnchor(BaikeAnchor):
 
         
 class DynamicBaikeAnchor(BaikeAnchor):
+    '''动态后缀class的锚点类型
+    '''
     CLASS_PREFIX = 'paraTitle_'
 
     @classmethod

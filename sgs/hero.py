@@ -9,6 +9,8 @@ from utils import classproperty
 from common import conf
 
 class Camp(Enum):
+    '''势力阵营枚举
+    '''
     UNKNOWN = '未知'
     SHU = '蜀'
     WEI = '魏'
@@ -25,6 +27,9 @@ class Camp(Enum):
 
 
 def hero_parsers(name, bases, attrd):
+    '''按照配置给Hero 动态添加parser 的meta
+    配置key为具体的parser 类名, value 为整数, 0为关闭, 非0为打开
+    '''
     valid_parsers = (getattr(parser, parse_name) for parse_name, val in conf.items('HeroParser')
                      if int(val) and hasattr(parser, parse_name))
     return type(name, bases+tuple(valid_parsers), attrd)
@@ -32,6 +37,13 @@ def hero_parsers(name, bases, attrd):
 
 @dataclass
 class Hero(metaclass=hero_parsers):
+    '''武将模型
+    contents: md 文件的段落列表, 每一个段落转为一个GeneralBlock
+    hp: 初始血量
+    hp_max: 体力上限
+    image: 插画
+    is_monarch: 是否是主公
+    '''
     pack: str
     name: str
     contents: List[GeneralBlock] = field(default_factory=list)
@@ -52,11 +64,15 @@ class Hero(metaclass=hero_parsers):
                 if (md_key := fd.metadata.get('md_key')) is not None}
         
     def crawl_by_name(self):
+        '''使用parser 进行抓取解析
+        '''
         if isinstance(self, parser.Parser):
             self.crawl_parse(self.name)
         return self
     
     def __getattr__(self, name):
+        '''当没有继承parser, 而又需要访问其抽象属性, 提供兜底返回
+        '''
         if hasattr(parser.Parser, name):
             return ''
         return super().__getattr__(name)
@@ -88,6 +104,8 @@ class Hero(metaclass=hero_parsers):
         return self.pack
 
     def dump(self, file_path: str):
+        '''cached_property 是个mapping_proxy 无法dump 所以需要先移除
+        '''
         if isinstance(self, parser.Parser):
             del self.alias_mapper
         if not file_path.endswith('.pickle'):

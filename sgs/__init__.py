@@ -14,10 +14,23 @@ from common import root_path
 
 @dataclass
 class HeroMgr:
+    '''加载武将的md 文件，获取武将全集
+    heros: 武将列表
+    level: 当前的md 层级(以header层级为准)
+    cur_pack: 当前武将的所属武将包
+    status: 是否处理当前节点的非正文子节点的状态开关(正文子节点始终遍历)
+    line_prefix: 当前的md 列表前缀字符(用以表示当前正文是列表)
+
+    VALID_HEADING: md 中有效的一级节点
+    MONARCH_TAG: 判断是否是主公的标识
+    HP_PATTERN: md 中的体力值正则
+    str_patterns: hero 的字段正则
+    '''
+    heros: List[Hero] = field(default_factory=list)
+
     level: int = 1
     cur_pack: str = ''
     status: bool = True
-    heros: List[Hero] = field(default_factory=list)
     line_prefix: str = ''
 
     VALID_HEADING = '武将牌'
@@ -29,6 +42,8 @@ class HeroMgr:
 
     @classmethod
     def load(cls, file_path):
+        '''加载并解析md 文件
+        '''
         with open(file_path) as fin:
             doc = mistletoe.Document(fin)
             struct = get_ast(doc)
@@ -39,6 +54,10 @@ class HeroMgr:
             return mgr
 
     def pre_process(self, node):
+        '''节点处理的前置拦截
+        遇到同级、高级、未知级别的节点则直接放行(只有header 有level 正文段落是没有level)
+        遇到子节点取决于状态开关
+        '''
         if node.get('level', self.level+1) <= self.level:
             return True
         return self.status or 'level' not in node
@@ -47,6 +66,9 @@ class HeroMgr:
         pass
 
     def process_node(self, node):
+        '''有level 属于header, 则更新level
+        没有level 属于正文段落, 仅在第一个段落level增一, 然后关掉开关, 避免下个段落再增
+        '''
         if self.pre_process(node):
             if level := node.get('level', None):
                 self.level = level
@@ -58,24 +80,41 @@ class HeroMgr:
         self.post_process()
 
     def process_level_1(self, node):
+        '''处理一级类目节点
+        '''
         if node['type'] != 'Heading' or node['children'][0]['content'] != self.VALID_HEADING:
             self.status = False
 
     def process_level_2(self, node):
+        '''处理二级包名节点
+        '''
         if node['type'] == 'Heading':
             self.cur_pack = node['children'][0]['content']
 
     def process_level_3(self, node):
+        '''处理三级武将名节点
+        '''
         if node['type'] == 'Heading':
             self.heros.append(Hero(self.cur_pack, node['children'][0]['content']))
 
     def process_level_4(self, node):
+        '''处理四级正文节点，转发给对应节点类型的处理器
+        '''
         getattr(self, f'process_{node["type"]}')(node)
 
     def process_Paragraph(self, node):
+        '''段落节点处理器
+        识别段落子节点类型并处理之
+        lines 就是hero.content 中的一个段落
+        '''
         cur_strs = []
         lines = []
         def add_to_lines():
+            '''段落行处理器
+            1. 处理行正则规则
+            2. 判断是否主公
+            3. 不满足正则规则的都放入lines中
+            '''
             block = GeneralBlock('div', cur_strs)
             raw_line = str(block)
             if raw_line:
@@ -114,6 +153,9 @@ class HeroMgr:
             self.heros[-1].contents.append(GeneralBlock('p', UList.list_collect(lines)))
     
     def process_List(self, node):
+        '''处理正文中的list 段落
+        将子元素按正文一样处理(用以支持list的嵌套)
+        '''
         for item in node['children']:
             self.line_prefix = item['leader']
             for child in item['children']:

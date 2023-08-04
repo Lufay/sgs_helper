@@ -10,6 +10,8 @@ from utils import classproperty
 from .crawler import B, UList, crawl, baike_crawl, Img, GeneralBlock, Text, Table, Header, Caption
 
 def both_in_or_not(s, a, b):
+    if isinstance(s, (list, tuple)):
+        return all(both_in_or_not(ss, a, b) for ss in s)
     return (s in a) == (s in b)
 
 class Parser(ABC):
@@ -54,15 +56,25 @@ class Parser(ABC):
         else:
             setattr(self, fd.name, val)
 
+    @cached_property
+    def hps(self):
+        return [
+            fv for sub_p in Parser.__subclasses__()
+            for fname in vars(sub_p)
+            if fname.endswith('_hp') and isinstance(fv := getattr(self, fname), int)
+        ]
+
 
 @dataclass(init=False, eq=False, match_args=False)
 class BaiduBaikeParser(Parser):
     baike_title:str = field(default='', init=False, metadata={'alias': '称号'})
-    game_mode: str = field(default='', init=False, metadata={'alias':('模式', '出现模式', '所属模式', '适用模式')})
+    game_mode: str = field(default='', init=False, metadata={'alias':('模式', '出现模式', '所属模式', '适用模式', '游戏模式')})
     card_id: str = field(default='', init=False, metadata={'alias': ('编号', '武将编号', '卡牌编号')})
+    baike_hp: int = field(default=0, init=False, metadata={'alias': ('体力', '体力上限'), 'val_trans': lambda s: int(s.partition('勾玉')[0])})
     baike_skill_names: list = field(default_factory=list, init=False, metadata={'alias': ('技能名称', '名称')})
-    baike_skill_descs: list = field(default_factory=list, init=False, metadata={'alias': ('技能描述', '描述', '技能信息', '技能介绍')})
+    baike_skill_descs: list = field(default_factory=list, init=False, metadata={'alias': ('技能描述', '描述', '技能信息', '技能介绍', '内容')})
     baike_lines: list = field(default_factory=list, init=False)
+    baike_key: str = field(default='', init=False, metadata={'md_key': ''})
     baike_attr_ver: str = field(default='', init=False, metadata={'md_key': ''})
     baike_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
     baike_line_ver: str = field(default='', init=False, metadata={'md_key': ''})
@@ -98,7 +110,7 @@ class BaiduBaikeParser(Parser):
         keys = {
             'attr': ('属性', '武将属性', '卡牌属性', '卡牌信息'),
             'skill': ('能力设定', '技能', '武将技能'),
-            'line': ('台词', '武将台词', '角色台词', '语音台词'),
+            'line': ('台词', '武将台词', '角色台词', '语音台词', '身份局'),
             'image': ('角色专属', '皮肤', '武将皮肤')
         }
         parser_mapper = {name:val for name, val in vars(BaiduBaikeParser).items() if name.startswith('parse_')}
@@ -118,7 +130,7 @@ class BaiduBaikeParser(Parser):
             self.sub_mod_name = ''
             self.sub_module = {}
             # fill sub_module
-            for node in baike_crawl(name):
+            for node in baike_crawl(self.baike_key if self.baike_key else name):
                 if node:
                     match node:
                         case dict():
@@ -130,10 +142,15 @@ class BaiduBaikeParser(Parser):
             self.new_sub_mod('')
             # consume sub_module
             for mod_name, table in self.sub_module.items():
-                if f_verkey := self.module_parsers.get(mod_name):
+                if (f_verkey := self.module_parsers.get(mod_name)) and table.records:
                     headers = [str(h) for h in table.headers] if table.headers else ()
                     len_header = len(headers)
                     f, ver_key = f_verkey
+                    if ver_key != 'baike_skill_ver':
+                        remove_col_idx = [i for i, h in enumerate(headers) if '技能' in h]
+                        for i in remove_col_idx:
+                            headers.pop(i)
+                    self.remove_keys_prefix(headers)
                     ver = getattr(self, ver_key)
                     if ver:
                         try:
@@ -147,19 +164,33 @@ class BaiduBaikeParser(Parser):
                         if len_header:
                             assert len(record) == len_header
                         if not ver or all(ver in (record_ver := str(record[ver_col_idx+i])) and \
-                                       both_in_or_not('国战', ver, record_ver) for i, ver in enumerate(vers)):
-                            cols = record[ver_col_idx+len(vers):] if ver else record
+                                       both_in_or_not(('国战', '界'), ver, record_ver) for i, ver in enumerate(vers)):
+                            if ver_key != 'baike_skill_ver':
+                                for i in remove_col_idx:
+                                    record.pop(i)
+                            if ver:
+                                record = record[ver_col_idx+len(vers):]
                             # f(headers, cols)(self)
-                            f(self, headers, cols)
+                            f(self, headers, record)
             del self.sub_mod_name, self.sub_module
         return super().crawl_parse(name)
     
+    @staticmethod
+    def remove_keys_prefix(headers):
+        for key in ('武将称号', '武将体力', '武将势力'):
+            if key in headers:
+                short_key = key.removeprefix('武将')
+                if isinstance(headers, dict):
+                    headers.setdefault(short_key, headers.pop(key))
+                else:
+                    headers[headers.index(key)] = short_key
+    
     def parse_basic_info(self, info:dict):
-        if '武将称号' in info:
-            info.setdefault('称号', info.pop('武将称号'))
+        self.remove_keys_prefix(info)
         info.setdefault('势力', info.get('所属势力', '未知')[0])
-        if '技能' in info:
-            del info['技能']
+        for a_name in ('技能名称', '技能'):
+            if a_name in info:
+                del info[a_name]
         for alias, fd in self.alias_mapper.items():
             if alias in info:
                 self.set_field(fd, info[alias])
@@ -183,24 +214,30 @@ class BaiduBaikeParser(Parser):
             if col_name == '画师':
                 self.set_image_author(str(col))
             elif col_name in ('武将技能', '技能'):
-                for block in col:
-                    if isinstance(block, GeneralBlock):
-                        name = ''
-                        descs = []
-                        for sub_b in block:
-                            if isinstance(sub_b, B):
-                                name = sub_b
-                            elif isinstance(sub_b, GeneralBlock):
-                                if any('bold_' in c for c in sub_b.classes):
-                                    name = B(str(sub_b), sub_b.__name__)
-                                else:
-                                    descs.append(str(sub_b))
-                            elif sub_b:
-                                descs.append(sub_b)
-                        self.baike_skill_names.append(name)
-                        self.baike_skill_descs.append(''.join(descs))
+                self.parse_skill_blocks(col)
             elif fd := self.alias_mapper.get(col_name):
-                self.set_field(fd, str(col))
+                if fd.name == 'baike_skill_descs' and len(self.baike_skill_names) <= len(self.baike_skill_descs):
+                    self.parse_skill_blocks(col)
+                else:
+                    self.set_field(fd, str(col))
+
+    def parse_skill_blocks(self, blocks: List[GeneralBlock]):
+        for block in blocks:
+            if isinstance(block, GeneralBlock):
+                name = ''
+                descs = []
+                for sub_b in block:
+                    if isinstance(sub_b, B) and not name:
+                        name = sub_b
+                    elif isinstance(sub_b, GeneralBlock):
+                        if any('bold_' in c for c in sub_b.classes) and not name:
+                            name = B(str(sub_b), sub_b.__name__)
+                        else:
+                            descs.append(str(sub_b))
+                    elif sub_b:
+                        descs.append(sub_b)
+                self.baike_skill_names.append(name)
+                self.baike_skill_descs.append(''.join(descs))
 
     def parse_lines(self, headers:list, cols: list):
         '''台词模块table 处理器
@@ -229,12 +266,14 @@ class BaiduBaikeParser(Parser):
 @dataclass(init=False, eq=False, match_args=False)
 class BiligameParser(Parser):
     bili_title: str = field(default='', init=False, metadata={'alias': '武将称号'})
+    bili_hp: int = field(default=0, init=False, metadata={'alias': '勾玉', 'val_trans': int})
     bili_skills: List[str] = field(default_factory=list, init=False, metadata={
         'alias': '技能', 'anchor_num': 1, 'sections': ['技能标签']})
     bili_lines: List[str] = field(default_factory=list, init=False, metadata={
         'alias': '台词', 'anchor_num': 1, 'sections': ['basic-info-row-label']})
     biligame_pack: str = field(default='', init=False, metadata={'alias': '武将包'})
     biligame_key: str = field(default='', init=False, metadata={'md_key': ''})
+    biligame_ver: str = field(default='sgs', init=False, metadata={'md_key': ''})
     biligame_skill_ver: str = field(default='', init=False, metadata={'md_key': ''})
 
     name = 'Bili Game'
@@ -285,7 +324,7 @@ class BiligameParser(Parser):
         if not self.biligame_pack and self.biligame_key != 'none':
             not_p_header = True
             try:
-                for line in crawl(self.biligame_key if self.biligame_key else name):
+                for line in crawl(self.biligame_key if self.biligame_key else name, self.biligame_ver):
                     if line and isinstance(line, GeneralBlock):
                         if not_p_header:
                             not_p_header = self.parse_header(line)

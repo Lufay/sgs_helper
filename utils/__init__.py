@@ -1,4 +1,6 @@
 class classproperty:
+    '''类属性装饰器, 支持缓存, 但不支持缓存生成器函数结果(因为生成器只能一次性消费)
+    '''
     def __init__(self, method_or_cached):
         if callable(method_or_cached):
             self.method = method_or_cached

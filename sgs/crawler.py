@@ -10,6 +10,7 @@ import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from common import root_path
+from utils import classproperty
 
 class Markdown:
     '''支持markdown 格式化的基类
@@ -22,22 +23,23 @@ class Text(str, Markdown):
     在构造时, 会根据name决定返回的具体子类
     '''
     def __new__(cls, text='', name='', *args, **kwargs):
-        cls = dict(cls.local_subclasses).get(name, cls)
+        cls = cls.local_subclasses.get(name, cls)
         return super().__new__(cls, text)
     
     def __init__(self, text='', name='', **kwargs):
         self.__name__ = name
         self.attrs = kwargs
 
-    # @classproperty(1)
-    @classmethod
-    @property
-    def local_subclasses(cls):
-        for name, cc in inspect.getmembers(sys.modules[cls.__module__], inspect.isclass):
-            if issubclass(cc, cls):
-                yield name.lower(), cc
-        yield 'Strong', B
-        yield 'Emphasis', I
+    @classproperty(1)
+    def local_subclasses(cls) -> dict:
+        d = {
+            'Strong': B,
+            'Emphasis': I,
+        }
+        d.update((name.lower(), cc)
+                 for name, cc in inspect.getmembers(sys.modules[cls.__module__], inspect.isclass)
+                 if issubclass(cc, cls))
+        return d
 
 
 class I(Text):
@@ -228,8 +230,10 @@ class Table(GeneralBlock):
         '''将单元格每一格th 和 td 的内容放入headers 和 records
         only table tag to run
         支持rowspan和colspan(缓存内容实例, 并放到span的每一个位置)
+        not_consumed_cache 是为了解决tr 标签中没有内容的问题(前面的行中rowspan比较多)
         '''
         col_idx = 0
+        not_consumed_cache = True
         for cont in children:
             match cont:
                 case Table(__name__='thead') | Table(__name__='tbody') | Table(__name__='tr'):
@@ -237,22 +241,32 @@ class Table(GeneralBlock):
                         self.records.append(self.record)
                         self.record = []
                         col_idx = 0
-                    self.iter_children(cont)
+                    if self.iter_children(cont) and self.rowspan_cache:
+                        for rc in self.rowspan_cache:
+                            rc.cache_cnt -= 1
+                        self.rowspan_cache = deque(rc for rc in self.rowspan_cache if rc.cache_cnt)
                 case Table(__name__='th'):
-                    self.headers.append(cont)
+                    if (colspan := int(cont.attrd.get('colspan', 1))) > 1:
+                        self.headers.extend([cont]*colspan)
+                    else:
+                        self.headers.append(cont)
                 case Table(__name__='td'):
+                    not_consumed_cache = False
                     col_idx = self._add_rowspan_cols(col_idx)
                     if cache_cnt := (int(cont.attrd.get('rowspan', 1)) - 1):
                         cont.cache_cnt = cache_cnt
                         cont.idx = col_idx
                         self.rowspan_cache.append(cont)
-                    for i in range(int(cont.attrd.get('colspan', 1))):
+                    colspan = int(cont.attrd.get('colspan', 1))
+                    if colspan > 1:
+                        self.record.extend([cont]*colspan)
+                    else:
                         self.record.append(cont)
-                        col_idx += 1
-                    col_idx = self._add_rowspan_cols(col_idx)
+                    col_idx = self._add_rowspan_cols(col_idx + colspan)
         if self.record:
             self.records.append(self.record)
             self.record = []
+        return not_consumed_cache
 
     def _add_rowspan_cols(self, col_idx):
         '''应用rowspan 缓存, 左侧队列头, 右侧队列尾
@@ -280,18 +294,19 @@ class Table(GeneralBlock):
             ins.rowspan_cache = deque()
         return ins
 
+html_parser = 'html.parser'
 
-def crawl(name):
+def crawl(name, ver='sgs'):
     '''biligame 抓取器, 并做页面缓存
     通过recur_node 将关注的tag 转换为内部类型的生成器
     '''
-    f = root_path / f'page_cache/biligame/{name}.html'
+    f = root_path / f'page_cache/biligame/{ver}/{name}.html'
     if f.is_file():
-        bs = BeautifulSoup(f.read_text(), 'html.parser')
+        bs = BeautifulSoup(f.read_text(), html_parser)
     else:
-        resp = requests.get(f'https://wiki.biligame.com/sgs/{name}')
+        resp = requests.get(f'https://wiki.biligame.com/{ver}/{name}')
         resp.raise_for_status()
-        bs = BeautifulSoup(resp.text, 'html.parser')
+        bs = BeautifulSoup(resp.text, html_parser)
         f.write_text(bs.prettify())
     yield from recur_node(bs.find('div', id='mw-content-text').div.find('div', class_='col-direction'))
 
@@ -331,22 +346,28 @@ def baike_crawl(name):
     '''
     f = root_path / f'page_cache/baidu_baike/{name}.html'
     if f.is_file():
-        bs = BeautifulSoup(f.read_text(), 'html.parser')
+        bs = BeautifulSoup(f.read_text(), html_parser)
     else:
         host = 'https://baike.baidu.com'
-        resp = requests.get(f'{host}/item/{name}')
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.67',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            # 'Cookie': ''
+        }
+        resp = requests.get(f'{host}/item/{name}', headers=headers)
         resp.raise_for_status()
         print(resp.encoding)
-        bs = BeautifulSoup(resp.text, 'html.parser')
+        bs = BeautifulSoup(resp.text, html_parser)
         ulist = bs.find('ul', class_='polysemantList-wrapper')
         cond = lambda c: c and '三国杀' in c and '武将牌' in c
         if ulist:
             a = ulist.find('a', string=cond, title=cond)
         else:
             a = bs.find('a', string=cond)
-        resp = requests.get(f'{host}{a["href"]}')
-        resp.raise_for_status()
-        bs = BeautifulSoup(resp.text, 'html.parser')
+        if a:
+            resp = requests.get(f'{host}{a["href"]}', headers=headers)
+            resp.raise_for_status()
+            bs = BeautifulSoup(resp.text, html_parser)
         f.write_text(bs.prettify())
     yield baike_basic_info(bs.find('div', class_=('basic-info', 'J-basic-info')))
     baike_anchor:BaikeAnchor = BaikeAnchor.detect_anchor(bs)
@@ -356,18 +377,17 @@ def baike_crawl(name):
         yield Header(title)
         yield from baike_anchor.iter_siblings()
     
-def baike_basic_info(div: Tag):
+def baike_basic_info(div: Tag) -> dict:
     '''根据基本信息tag 返回dict
     '''
-    basic_info = {}
-    for dl in div.find_all('dl'):
-        cur:Tag = dl.dt
-        while cur:
-            nxt = cur.find_next_sibling('dd')
-            key = ''.join(cur.string.strip().split())
-            basic_info[key] = str(GeneralBlock('div', recur_node(nxt)))
-            cur = nxt.find_next_sibling('dt')
-    return basic_info
+    return {
+        # 这种方式不支持\xa0、\u3000、\u2800 这些空白符
+        # dt.string.translate(str.maketrans(dict.fromkeys(string.whitespace))):
+        ''.join(dt.string.split()):
+        str(GeneralBlock('div', recur_node(dt.find_next_sibling('dd'))))
+        for dl in div.find_all('dl')
+        for dt in dl.find_all('dt')
+    }
 
 
 class BaikeAnchor(ABC):

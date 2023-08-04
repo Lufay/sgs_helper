@@ -5,6 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from common import conf
 from sgs import Hero
+from utils.robot_adapter import robot
 
 def test_robot(cmd):
     resp = requests.post('http://127.0.0.1:5000/sgs/hero', json={
@@ -25,7 +26,6 @@ def show_hero(hero: Hero):
 
 def check_hero(name=None):
     from sgs import HeroMgr
-    from utils.robot_adapter import robot
     mgr = HeroMgr.load(conf['Local']['MarkDownPath'])
     dump_dir = conf['Local']['HeroDumpPath']
     print('Total:', len(mgr.heros))
@@ -35,8 +35,8 @@ def check_hero(name=None):
     else:
         heros = mgr.heros
     for hero in heros:
-        show_hero(hero.crawl_by_name())     # 测试幂等
-        if not os.path.isfile(dump_dir + hero.name + '.pickle'):
+        if not os.path.isfile(dump_dir + hero.uni_name + '.pickle'):
+            show_hero(hero.crawl_by_name())     # 测试幂等
             robot(hero)
             if input('dump (y/n)?') == 'y':
                 hero.dump(dump_dir)
@@ -46,6 +46,7 @@ def load_hero(name):
     dump_dir = conf['Local']['HeroDumpPath']
     hero = Hero.load(dump_dir + name + '.pickle')
     show_hero(hero)
+    robot(hero)
 
 
 if __name__ == '__main__':

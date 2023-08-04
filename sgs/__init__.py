@@ -178,5 +178,5 @@ class HeroMgr:
     
     @cached_property
     def all_heros(self):
-        return [f'{hero.name}@{hero.pack}' for hero in self.heros]  # if hero.contents
+        return [hero.uni_name for hero in self.heros]  # if hero.contents
 

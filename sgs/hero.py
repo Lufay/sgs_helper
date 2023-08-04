@@ -1,5 +1,6 @@
 from enum import Enum
 from dataclasses import dataclass, field, fields
+from functools import cached_property
 import pickle
 from typing import List, Optional
 
@@ -47,8 +48,8 @@ class Hero(metaclass=hero_parsers):
     pack: str
     name: str
     contents: List[GeneralBlock] = field(default_factory=list)
-    hp: int = field(default=0, metadata={'alias': '勾玉', 'val_trans': int})
-    hp_max: int = field(default=0, metadata={'alias': ('体力', '体力上限'), 'val_trans': lambda s: int(s.partition('勾玉')[0])})
+    hp: int = 0
+    hp_max: int = 0
     image: Optional[Img] = None
     gender: str = field(default='', metadata={'alias': '性别'})
     camp: Camp = field(default=Camp.UNKNOWN, metadata={'alias': '势力', 'val_trans': Camp.get_value})
@@ -70,6 +71,15 @@ class Hero(metaclass=hero_parsers):
             self.crawl_parse(self.name)
         return self
     
+    def __getattribute__(self, name):
+        mapper = {
+            'hp': min, 'hp_max': max,
+        }
+        v = super().__getattribute__(name)
+        if name in mapper and v == 0 and isinstance(self, parser.Parser):
+            return mapper[name](self.hps)
+        return v
+
     def __getattr__(self, name):
         '''当没有继承parser, 而又需要访问其抽象属性, 提供兜底返回
         '''
@@ -102,14 +112,18 @@ class Hero(metaclass=hero_parsers):
 
     def get_pack(self):
         return self.pack
+    
+    @cached_property
+    def uni_name(self):
+        return f'{self.name}@{self.pack}'
 
     def dump(self, file_path: str):
         '''cached_property 是个mapping_proxy 无法dump 所以需要先移除
         '''
         if isinstance(self, parser.Parser):
-            del self.alias_mapper
+            del self.alias_mapper, self.hps
         if not file_path.endswith('.pickle'):
-            file_path += self.name + '.pickle'
+            file_path += self.uni_name + '.pickle'
         with open(file_path, 'wb') as wf:
             pickle.dump(self, wf)
 

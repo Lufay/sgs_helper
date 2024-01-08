@@ -85,9 +85,10 @@ class Img(Markdown):
     DEFAULT_SRC = '1x'
     def __init__(self, tag:Tag|dict, author=None):
         self.img_src_set = {self.DEFAULT_SRC: tag["src"]}
-        for item in tag.get("srcset", '').split(','):
-            src, t = item.strip().split()
-            self.img_src_set[t] = src
+        if srcset := tag.get("srcset"):
+            for item in srcset.split(','):
+                src, t = item.split()
+                self.img_src_set[t] = src
         self.data_src = tag.get("data-src", '')
         self.alt = tag.get("alt")
         self.author = author
@@ -172,12 +173,12 @@ class UList(GeneralBlock):
 
     def __str__(self):
         if self.__name__ == 'ul':
-            return str(list(self.contents))
+            return str(list(self))
         return super.__str__()
     
     def md_format(self, **kwargs):
         if self.__name__ == 'ul':
-            return '\n'.join((c.md_format(**kwargs) if isinstance(c, Markdown) else str(c)) + '  ' for c in self.contents)
+            return '\n'.join((c.md_format(**kwargs) if isinstance(c, Markdown) else str(c)) + '  ' for c in self)
         elif self.__name__ == 'li':
             return f'{self.leader} {super().md_format(**kwargs)}'
         return super().md_format(**kwargs)

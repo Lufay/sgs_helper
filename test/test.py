@@ -44,9 +44,9 @@ def check_hero(name=None):
 
 def load_hero(name):
     dump_dir = conf['Local']['HeroDumpPath']
-    hero = Hero.load(dump_dir + name + '.pickle')
-    show_hero(hero)
-    robot(hero)
+    for hero in Hero.load(dump_dir, name):
+        show_hero(hero)
+        robot(hero)
 
 
 if __name__ == '__main__':

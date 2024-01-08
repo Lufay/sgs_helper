@@ -126,7 +126,7 @@ class BaiduBaikeParser(Parser):
 
         通过baike_skill_names 做幂等
         '''
-        if self.baike_skill_ver != 'none' and not self.baike_skill_names:
+        if self.baike_key != 'none' and not self.baike_skill_names:
             self.sub_mod_name = ''
             self.sub_module = {}
             # fill sub_module
@@ -143,9 +143,11 @@ class BaiduBaikeParser(Parser):
             # consume sub_module
             for mod_name, table in self.sub_module.items():
                 if (f_verkey := self.module_parsers.get(mod_name)) and table.records:
+                    f, ver_key = f_verkey
+                    if getattr(self, ver_key) == 'none':
+                        continue
                     headers = [str(h) for h in table.headers] if table.headers else ()
                     len_header = len(headers)
-                    f, ver_key = f_verkey
                     if ver_key != 'baike_skill_ver':
                         remove_col_idx = [i for i, h in enumerate(headers) if '技能' in h]
                         for i in remove_col_idx:
@@ -268,7 +270,7 @@ class BiligameParser(Parser):
     bili_title: str = field(default='', init=False, metadata={'alias': '武将称号'})
     bili_hp: int = field(default=0, init=False, metadata={'alias': '勾玉', 'val_trans': int})
     bili_skills: List[str] = field(default_factory=list, init=False, metadata={
-        'alias': '技能', 'anchor_num': 1, 'sections': ['技能标签']})
+        'alias': '技能', 'anchor_num': 1, 'sections': [{'技能标签', 'basic-info-row-label'}]})
     bili_lines: List[str] = field(default_factory=list, init=False, metadata={
         'alias': '台词', 'anchor_num': 1, 'sections': ['basic-info-row-label']})
     biligame_pack: str = field(default='', init=False, metadata={'alias': '武将包'})
@@ -406,7 +408,7 @@ class BiligameParser(Parser):
                         self.search_ver = False
                     continue
                 self.alias_matcher(sline)
-            elif isinstance(line, Img):
+            elif isinstance(line, Img) and not getattr(self, 'search_ver', False):
                 if '形象' in line.alt:
                     self.set_image(line)
                     self.key = 'author'
@@ -474,8 +476,8 @@ class Anchor:
             ori_stack = None
             if self.level >= 0:
                 self.level += 1
-                if 0 <= self.sec_idx < len(self.sections) and \
-                        self.sections[self.sec_idx] in classes:
+                if 0 <= self.sec_idx < len(self.sections) and (section.intersection(classes) if \
+                        isinstance(section := self.sections[self.sec_idx], set) else section in classes):
                     ori_stack = self.stack
                     self.stack = []
                     ori_stack.append(self.stack)

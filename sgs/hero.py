@@ -1,6 +1,7 @@
 from enum import Enum
 from dataclasses import dataclass, field, fields
 from functools import cached_property
+import glob
 import pickle
 from typing import List, Optional
 
@@ -128,6 +129,11 @@ class Hero(metaclass=hero_parsers):
             pickle.dump(self, wf)
 
     @staticmethod
-    def load(file_path):
-        with open(file_path, 'rb') as rf:
-            return pickle.load(rf)
+    def load(file_path, name, pack=None):
+        filename = ('',)
+        if not file_path.endswith('.pickle'):
+            filename = (f'{name}@{pack}.pickle',) if pack else \
+                glob.iglob(name + '@*.pickle', root_dir=file_path)
+        for fn in filename:
+            with open(file_path + fn, 'rb') as rf:
+                yield pickle.load(rf)

@@ -95,7 +95,11 @@ class HeroMgr:
         '''处理三级武将名节点
         '''
         if node['type'] == 'Heading':
-            self.heros.append(Hero(self.cur_pack, node['children'][0]['content']))
+            child = node['children'][0]
+            if child['type'] == 'RawText':
+                self.heros.append(Hero(self.cur_pack, child['content']))
+            else:
+                self.status = False
 
     def process_level_4(self, node):
         '''处理四级正文节点，转发给对应节点类型的处理器

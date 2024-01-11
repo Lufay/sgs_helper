@@ -8,7 +8,7 @@ from sgs import Hero
 from utils.robot_adapter import robot
 
 def test_robot(cmd):
-    resp = requests.post('http://127.0.0.1:5000/sgs/hero', json={
+    resp = requests.post('http://127.0.0.1:5000/sgs/helper', json={
         'content': cmd,
         'sender': 'tester',
     })
@@ -55,6 +55,5 @@ if __name__ == '__main__':
     # test_robot('roll hero')
     # test_robot('华佗 标')
     # test_robot('win 5人身份+魏延')
-    # test_hero_mgr('纪灵')
-    check_hero('华佗')
-    # load_hero('华佗')
+    # check_hero('纪灵')
+    load_hero('嵇康')

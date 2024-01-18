@@ -3,7 +3,7 @@ import random
 import time
 
 from biz.room import Room
-from utils.fs_util import FsClient, post
+from utils.fs_util import send_chat_card
 from utils.router import route, MatchType as MT
 
 
@@ -18,21 +18,7 @@ def make_room(cmd, ctx, *args, **kwargs):
     if (cached_cnt := room.cache()) != user_cnt:
         print('cache room', room.room_id, ' size:', cached_cnt)
         return
-    res = FsClient.common_request(post, '/im/v1/messages', params={
-        'receive_id_type': 'chat_id'
-    }, json={
-        "receive_id": kwargs.get('chat_id'),
-        "msg_type": "interactive",
-        "content": json.dumps({
-            'type': 'template',
-            'data': {
-                'template_id': 'ctp_AAy5FDrz9DNP',
-                'template_variable': {
-                    'room_id': room.room_id
-                }
-            }
-        })
-    })
+    res = send_chat_card(kwargs.get('chat_id'), 'ctp_AAy5FDrz9DNP', room.room_id)
     print(res)
 
 

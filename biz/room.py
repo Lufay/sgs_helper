@@ -11,12 +11,18 @@ class Role(Enum):
     Rebel = '反贼'
 
 class Room:
+    '''一局游戏的角色分配
+    一局游戏的数据缓存15min
+    '''
     redis_client = RedisClient()
     expire_sec = 900
     role_queue_key = 'rq_%s'
     role_user_key = 'ru_%s'
 
     def __init__(self, room_id, n=0, traitor_cnt=1):
+        '''仅提供ID, 则是获取一个缓存的游戏局
+        否则会新建一局游戏
+        '''
         self.room_id = room_id
         if self.redis_client.client.exists(self.role_queue_key % room_id):
             self.role_queue = None
@@ -29,6 +35,9 @@ class Room:
 
     @staticmethod
     def gen_role_seq(n, traitor_cnt=1):
+        '''角色分配算法：
+        1主、半数反、定额内、其余忠
+        '''
         yield Role.Lord
         yield from [Role.Rebel]*(n//2)
         if traitor_cnt > 0:
@@ -38,6 +47,8 @@ class Room:
             yield from [Role.Minister]*minister_cnt
 
     def pop_role(self, user_id) -> Role:
+        '''为了一个用户重复取身份, 用user_id 缓存其在该局游戏的身份
+        '''
         client = self.redis_client.client
         redis_key = self.role_user_key % self.room_id
         if client.hexists(redis_key, user_id):

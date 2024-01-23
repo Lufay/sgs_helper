@@ -6,7 +6,7 @@ import time
 
 import requests
 from common import conf, runtime_env
-from sgs.hero import Hero
+from sgs.heros.hero import Hero
 
 
 def get_content_dict(content, at):

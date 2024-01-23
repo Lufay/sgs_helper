@@ -85,3 +85,40 @@ def get_image_stream(msg_id, image_key):
     else:
         print(resp.text)
         resp.raise_for_status()
+
+def get_doc_block(doc_id, block_id):
+    return FsClient.common_request(get, f'/docx/v1/documents/{doc_id}/blocks/{block_id}', 'block')
+
+def get_doc_table(doc_id, table_block_id):
+    '''去除表格左上角的一个单元格
+    第一行为表头, 第一列为行标
+    表头为空, 或者行标为空均不收录, 返回一个二维字典
+    '''
+    block = get_doc_block(doc_id, table_block_id)
+    assert block['block_type'] == 31
+    table = block['table']
+    cells = table['cells']
+    column_size = table['property']['column_size']
+    # row_size = table['property']['row_size']
+    table_dict = {}
+    headers = ['']
+    for i, cell in enumerate(cells[1:]):
+        block = get_doc_block(doc_id, cell)
+        block_c = get_doc_block(doc_id, block['children'][0])
+        conts = block_c['text']['elements']
+        cont = ''.join(e['text_run']['content'] for e in conts)
+        column = (i+1) % column_size
+        row = (i+1) // column_size
+        if row == 0:
+            if cont:
+                table_dict[cont] = {}
+            headers.append(cont)
+        elif column == 0:
+            col_key = cont
+        elif col_name := headers[column]:
+            table_dict[col_name][col_key] = cont
+    return table_dict
+            
+if __name__ == '__main__':
+    td = get_doc_table('QcTidCaTTovc9zxt2pkl7mFng4c', 'I2GTdMPlIoHcmpxomT0lgu5Igkb')
+    print(td)

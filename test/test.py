@@ -4,7 +4,7 @@ import requests
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from common import conf
-from sgs import Hero
+from sgs.heros import Hero
 from utils.robot_adapter import robot
 
 def test_robot(cmd):
@@ -25,7 +25,7 @@ def show_hero(hero: Hero):
 
 
 def check_hero(name=None):
-    from sgs import HeroMgr
+    from sgs.heros import HeroMgr
     mgr = HeroMgr.load(conf['Local']['MarkDownPath'])
     dump_dir = conf['Local']['HeroDumpPath']
     print('Total:', len(mgr.heros))
@@ -49,11 +49,19 @@ def load_hero(name):
         robot(hero)
 
 
+def test_card():
+    from sgs.cards.region import CardHeap
+    ch = CardHeap()
+    print(list(ch.pop(4)))
+
+
 if __name__ == '__main__':
     # test_robot('我是谁')
     # test_robot('roll master 3')
-    # test_robot('roll hero')
+    # test_robot('roll hero 3')
     # test_robot('华佗 标')
     # test_robot('win 5人身份+魏延')
     # check_hero('纪灵')
-    load_hero('嵇康')
+    # load_hero('嵇康')
+    test_card()
+

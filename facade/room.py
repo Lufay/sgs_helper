@@ -1,8 +1,7 @@
-import json
 import random
 import time
 
-from biz.room import Room
+from sgs.room import Room
 from utils.fs_util import send_chat_card
 from utils.router import route, MatchType as MT
 
@@ -11,13 +10,11 @@ from utils.router import route, MatchType as MT
 def make_room(cmd, ctx, *args, **kwargs):
     ma = ctx[0]
     user_cnt = int(ma.group(2))
-    if user_cnt < 5 or user_cnt > 10:
-        raise ValueError('人数限于5-10人之间')
+    if user_cnt < 2 or user_cnt > 10:
+        raise ValueError('人数限于2-10人之间')
     cnt = ma.group(1)
     room = Room(f'{time.time()}{random.random()}', user_cnt, int(cnt) if cnt else 1)
-    if (cached_cnt := room.cache()) != user_cnt:
-        print('cache room', room.room_id, ' size:', cached_cnt)
-        return
+    assert room.cache() == user_cnt
     res = send_chat_card(kwargs.get('chat_id'), 'ctp_AAy5FDrz9DNP', room.room_id)
     print(res)
 

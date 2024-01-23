@@ -1,5 +1,5 @@
 import random
-from sgs import HeroMgr
+from sgs.heros import HeroMgr
 from common import conf
 
 from utils.robot_adapter import robot

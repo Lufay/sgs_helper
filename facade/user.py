@@ -1,12 +1,11 @@
-import atexit
 from biz.user import UserMgr
-from common import conf
+# from common import conf
 
 from utils.robot_adapter import robot
 from utils.router import route, MatchType as MT
 
-UserMgr.load(conf['Local']['UserRcordPath'])
-atexit.register(UserMgr.dump, conf['Local']['UserRcordPath'])
+# UserMgr.load(conf['Local']['UserRcordPath'])
+# atexit.register(UserMgr.dump, conf['Local']['UserRcordPath'])
 
 @route(r'win ([^+]+)\+(.+)', MT.REGEX)
 def win(cmd, ctx, *args, **kwargs):

@@ -1,5 +1,9 @@
+from dataclasses import dataclass, field
 import random
+
+from ..role import Role
 from .card import Card
+from ..heros.hero import Camp
 
 
 class CardHeapEmpty(EOFError):
@@ -36,3 +40,18 @@ class CardHeap:
 
     def discard(self, *cards):
         self.us_cards.extend(cards)
+
+
+@dataclass
+class UserRole:
+    user_id: str
+    role: Role
+    hero_id: str = ''
+    hp: int = 0
+    hp_max: int = 0
+    camp: Camp = Camp.UNKNOWN
+    gender: int = 0
+    judge_region: list = field(default_factory=list)
+    equip_region: dict = field(default_factory=dict)
+    own_region: list = field(default_factory=list)
+    tag_dict: dict = field(default_factory=dict)

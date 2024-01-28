@@ -62,11 +62,11 @@ def send_chat_card(chat_id, card_id, **kwargs):
         })
     })
 
-def send_chat_msg(chat_id, msg):
+def send_msg(receive_id, msg, id_type='chat_id'):
     return FsClient.common_request(post, '/im/v1/messages', params={
-        'receive_id_type': 'chat_id'
+        'receive_id_type': id_type
     }, json={
-        "receive_id": chat_id,
+        "receive_id": receive_id,
         "msg_type": "text",
         "content": json.dumps({
             'text': msg,

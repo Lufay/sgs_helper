@@ -1,10 +1,14 @@
 import json
+import logging
+from multiprocessing import Pool, cpu_count, Manager
 from flask import Flask, request
 
 from facade import *   # add facade don't remove it
 from utils.router import route_todo
 from utils.redis_util import RedisClient
-from common import runtime_env
+import common
+from common import runtime_env, conf
+from biz.user import user_mgr_ctx
 
 app = Flask(__name__)
 runtime_env['debug'] = app.config.get('DEBUG')
@@ -13,7 +17,9 @@ runtime_env['debug'] = app.config.get('DEBUG')
 def sgs_main():
     # print(request.args)
     if request.content_type.startswith('application/json'):
+        logger = logging.getLogger('request')
         data = request.get_json()
+        logger.debug('request: %s' % data)
         if 'challenge' in data:
             ret = {'challenge': data['challenge']}
         elif 'event' in data and data.get('schema') == '2.0':
@@ -69,5 +75,11 @@ def process_action(msg_id, chat_id, action: dict, token: str, op_open_id: str):
 
 
 if __name__ == '__main__':
-    # app.run(debug = True)
-    app.run()
+    print('CPU count:', cpu_count())
+    with (Manager() as manager,
+          Pool() as pool,
+          user_mgr_ctx(conf['Local']['UserRcordPath'])):
+        common.manager = manager
+        common.process_pool = pool
+        # app.run(debug = True)
+        app.run()

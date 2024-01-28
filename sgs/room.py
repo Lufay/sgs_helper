@@ -1,14 +1,11 @@
-from enum import Enum
+import logging
 import random
 
 from utils.redis_util import RedisClient
+import common
+from .role import Role
+from .cards.region import UserRole
 
-
-class Role(Enum):
-    Lord = '主公'
-    Minister = '忠臣'
-    Traitor = '内奸'
-    Rebel = '反贼'
 
 class Room:
     '''一局游戏的角色分配
@@ -18,6 +15,7 @@ class Room:
     expire_sec = 900
     role_queue_key = 'rq_%s'
     role_user_key = 'ru_%s'
+    rooms_map = {}
 
     def __init__(self, room_id, n=0, traitor_cnt=1):
         '''仅提供ID, 则是获取一个缓存的游戏局
@@ -30,8 +28,11 @@ class Room:
                 return
             else:
                 self.redis_client.client.delete(self.role_queue_key % room_id)
-        self.role_queue = list(self.__class__.gen_role_seq(n, traitor_cnt))
-        random.shuffle(self.role_queue)
+        if n > 1:
+            self.role_queue = list(self.__class__.gen_role_seq(n, traitor_cnt))
+            random.shuffle(self.role_queue)
+        else:
+            self.role_queue = None
 
     @staticmethod
     def gen_role_seq(n, traitor_cnt=1):
@@ -65,14 +66,53 @@ class Room:
         print(f'cache user {user_id} role {role} return {ret}')
         ret = client.expire(redis_key, self.expire_sec)
         print(f'refresh user {user_id}, return {ret}')
+        self.lock = common.manager.Lock()
+        common.process_pool.apply_async(self.check_all_seat, callback=self.all_seat_done, error_callback=self.check_seat_error)   # call_it, (self,)
         return role
-    
+
+    def check_all_seat(self):
+        if len(self) == 0 and self.room_id not in self.rooms_map:
+            rc = RedisClient()
+            redis_key = self.role_user_key % self.room_id
+            if self.lock.acquire(timeout=3):
+                if self.room_id in self.rooms_map:
+                    return ()
+                role_cycle = [
+                    UserRole(field.decode(), Role(value.decode()))
+                    for field, value in rc.client.hscan_iter(redis_key)
+                ]
+                random.shuffle(role_cycle)
+                for i, uc in enumerate(role_cycle):
+                    if uc.role is Role.Lord:
+                        return role_cycle[i:] + role_cycle[0:i]
+                return ()
+
+    def all_seat_done(self, role_cycle):
+        if role_cycle:
+            self.rooms_map[self.room_id] = role_cycle
+        if role_cycle is not None:
+            self.lock.release()
+        del self.lock
+
+    def check_seat_error(self, e):
+        logger = logging.getLogger('allSeat')
+        logger.exception('check all seat exception: %s', e)
+        self.lock.release()
+        del self.lock
+
     def __len__(self):
         if self.role_queue is None:
             return self.redis_client.client.llen(self.role_queue_key % self.room_id)
         else:
             return len(self.role_queue)
-    
+        
+    def online(self):
+        ...
+
+    def offline(self):
+        if self.room_id in self.rooms_map:
+            del self.rooms_map[self.room_id]
+
     def cache(self):
         client = self.redis_client.client
         redis_key = self.role_queue_key % self.room_id
@@ -81,7 +121,7 @@ class Room:
         rsp = client.expire(redis_key, self.expire_sec)
         print('redis expired response:', rsp)
         return ret
-    
+
 
 if __name__ == '__main__':
     r = Room('test_room_id', 8)

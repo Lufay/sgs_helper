@@ -10,6 +10,9 @@ conf.read(root_path / 'conf.ini')
 
 logging.config.fileConfig(root_path / 'log/log_conf.ini')
 
+process_pool = None
+manager = None
+
 runtime_env = {}
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -94,6 +95,13 @@ class UserMgr:
     @classmethod
     def get_user(cls, name) -> User:
         return cls.user_dict.setdefault(name, User(name))
+    
+
+@contextmanager
+def user_mgr_ctx(file_path:str):
+    UserMgr.load(file_path)
+    yield
+    UserMgr.dump(file_path)
 
 
 if __name__ == '__main__':

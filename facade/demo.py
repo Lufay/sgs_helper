@@ -1,7 +1,7 @@
 import random
 from utils.router import route, MatchType as MT
 from utils.robot_adapter import robot
-from utils.fs_util import send_chat_msg, get_image_stream
+from utils.fs_util import send_msg, get_image_stream
 
 @route('我是谁', MT.KEYWORD)
 def whoami(content, ctx, *args, **kwargs):

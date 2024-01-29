@@ -4,7 +4,6 @@ import random
 from utils.redis_util import RedisClient
 import common
 from .role import Role
-from .cards.region import UserRole
 
 
 class Room:
@@ -77,8 +76,9 @@ class Room:
             if self.lock.acquire(timeout=3):
                 if self.room_id in self.rooms_map:
                     return ()
+                from .cards.region import UserRole
                 role_cycle = [
-                    UserRole(field.decode(), Role(value.decode()))
+                    UserRole(field.decode(), Role(value.decode()), self)
                     for field, value in rc.client.hscan_iter(redis_key)
                 ]
                 random.shuffle(role_cycle)

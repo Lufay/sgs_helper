@@ -50,7 +50,7 @@ def get_role(cmd, ctx, *args, **kwargs):
 def get_position(cmd, ctx, *args, **kwargs):
     room_id = ctx[0].strip()
     open_id = kwargs['sender_open_id']
-    msg = '\n'.join(f'{i} {ur.user_id} {ur.role.value}'
+    msg = '\n'.join(f'{i} {ur.user_id} {ur.role.value} ({", ".join(map(str, ur.own_region))})'
                     for i, ur in enumerate(Room.rooms_map[room_id]))
     ret = send_msg(open_id, msg, 'open_id')
     print(ret)

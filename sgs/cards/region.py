@@ -4,6 +4,7 @@ import random
 from ..role import Role
 from .card import Card
 from ..heros.hero import Camp
+from ..room import Room
 
 
 class CardHeapEmpty(EOFError):
@@ -42,10 +43,30 @@ class CardHeap:
         self.us_cards.extend(cards)
 
 
+class CardHeapMgr:
+    card_heap_map = {}
+
+    def __get__(self, ins, owner=None):
+        room_id = ins.room.room_id
+        if room_id in self.card_heap_map:
+            return self.card_heap_map[room_id]
+        else:
+            ch = CardHeap()
+            self.card_heap_map[room_id] = ch
+            return ch
+    
+    def __set__(self, ins, value):
+        raise NotImplementedError('CardHeap cannot be set')
+    
+    def __delete__(self, ins):
+        del self.card_heap_map[ins.room.room_id]
+
+
 @dataclass
 class UserRole:
     user_id: str
     role: Role
+    room: Room
     hero_id: str = ''
     hp: int = 0
     hp_max: int = 0
@@ -53,5 +74,9 @@ class UserRole:
     gender: int = 0
     judge_region: list = field(default_factory=list)
     equip_region: dict = field(default_factory=dict)
-    own_region: list = field(default_factory=list)
     tag_dict: dict = field(default_factory=dict)
+
+    card_heap = CardHeapMgr()
+
+    def __post_init__(self):
+        self.own_region = list(self.card_heap.pop(4))

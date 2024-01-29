@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from enum import IntFlag, unique
+from functools import cached_property
 import inspect
 from pathlib import Path
 import pickle
 import random
+import string
 import sys
 from typing import Any
 
@@ -36,6 +38,7 @@ class Card:
     name: str
     card_type: CardType
 
+    suit_seq = ('黑桃', '梅花', '红桃', '方块')
     name = None
     card_type = None
     @classmethod
@@ -99,7 +102,14 @@ class Card:
                 elif getattr(cc, "names", None):
                     mapping.update((name, cc) for name in cc.names)
         return mapping
-        
+    
+    @cached_property
+    def suit_color(self):
+        idx = string.ascii_letters.index(self.card_id[0])
+        return self.suit_seq[idx % 26 % 4]
+    
+    def __str__(self):
+        return f'[{self.suit_color}{self.card_id[1]} {self.name}]'
                 
 
 class BaseCard(Card):

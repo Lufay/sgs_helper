@@ -14,13 +14,14 @@ class Room:
     expire_sec = 900
     role_queue_key = 'rq_%s'
     role_user_key = 'ru_%s'
-    rooms_map = {}
+    rooms_queue = {}
 
-    def __init__(self, room_id, n=0, traitor_cnt=1):
+    def __init__(self, room_id, n=0, traitor_cnt=1, collection='all'):
         '''仅提供ID, 则是获取一个缓存的游戏局
         否则会新建一局游戏
         '''
         self.room_id = room_id
+        self.collection = collection
         if self.redis_client.client.exists(self.role_queue_key % room_id):
             self.role_queue = None
             if n == 0 or len(self) == n:
@@ -70,11 +71,11 @@ class Room:
         return role
 
     def check_all_seat(self):
-        if len(self) == 0 and self.room_id not in self.rooms_map:
+        if len(self) == 0 and self.room_id not in self.rooms_queue:
             rc = RedisClient()
             redis_key = self.role_user_key % self.room_id
             if self.lock.acquire(timeout=3):
-                if self.room_id in self.rooms_map:
+                if self.room_id in self.rooms_queue:
                     return ()
                 from .cards.region import UserRole
                 role_cycle = [
@@ -89,7 +90,10 @@ class Room:
 
     def all_seat_done(self, role_cycle):
         if role_cycle:
-            self.rooms_map[self.room_id] = role_cycle
+            from .events import EventCenter, event_err_handler
+            ec = EventCenter(self.room_id, role_cycle)
+            self.rooms_queue[self.room_id] = ec.queue
+            common.process_pool.apply_async(ec.start, callback=self.game_end, error_callback=event_err_handler)
         if role_cycle is not None:
             self.lock.release()
         del self.lock
@@ -99,6 +103,10 @@ class Room:
         logger.exception('check all seat exception: %s', e)
         self.lock.release()
         del self.lock
+
+    def game_end(self, res):
+        print(f'房间{self.room_id} 游戏结束')
+        self.offline()
 
     def __len__(self):
         if self.role_queue is None:
@@ -110,8 +118,8 @@ class Room:
         ...
 
     def offline(self):
-        if self.room_id in self.rooms_map:
-            del self.rooms_map[self.room_id]
+        if self.room_id in self.rooms_queue:
+            del self.rooms_queue[self.room_id]
 
     def cache(self):
         client = self.redis_client.client

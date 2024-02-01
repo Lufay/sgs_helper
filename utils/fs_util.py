@@ -47,21 +47,28 @@ class FsClient:
             resp.raise_for_status()
 
 
-def send_chat_card(chat_id, card_id, **kwargs):
-    return FsClient.common_request(post, '/im/v1/messages', params={
-        'receive_id_type': 'chat_id'
-    }, json={
-        "receive_id": chat_id,
-        "msg_type": "interactive",
-        "content": json.dumps({
+def mock_test(func):
+    return lambda *args, **kwargs: 'mock send to test' if args[0].startswith('test-') else func(*args, **kwargs)
+
+@mock_test
+def send_card(receive_id, card_id_or_cont, id_type='chat_id', **kwargs):
+    if isinstance(card_id_or_cont, str):
+        card_id_or_cont = {
             'type': 'template',
             'data': {
-                'template_id': card_id,
+                'template_id': card_id_or_cont,
                 'template_variable': kwargs
             }
-        })
+        }
+    return FsClient.common_request(post, '/im/v1/messages', params={
+        'receive_id_type': id_type
+    }, json={
+        "receive_id": receive_id,
+        "msg_type": "interactive",
+        "content": json.dumps(card_id_or_cont)
     })
 
+@mock_test
 def send_msg(receive_id, msg, id_type='chat_id'):
     return FsClient.common_request(post, '/im/v1/messages', params={
         'receive_id_type': id_type

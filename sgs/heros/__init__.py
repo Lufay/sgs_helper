@@ -9,7 +9,7 @@ from mistletoe.ast_renderer import get_ast
 
 from .crawler import GeneralBlock, Text, UList
 from .hero import Hero
-from common import root_path
+from common import root_path, conf
 
 @dataclass
 class HeroMgr:
@@ -183,3 +183,4 @@ class HeroMgr:
     def all_heros(self):
         return [hero.uni_name for hero in self.heros]  # if hero.contents
 
+hero_mgr = HeroMgr.load(conf['Local']['MarkDownPath'])

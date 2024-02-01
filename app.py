@@ -77,7 +77,7 @@ def process_action(msg_id, chat_id, action: dict, token: str, op_open_id: str):
 if __name__ == '__main__':
     print('CPU count:', cpu_count())
     with (Manager() as manager,
-          Pool() as pool,
+          Pool(4) as pool,
           user_mgr_ctx(conf['Local']['UserRcordPath'])):
         common.manager = manager
         common.process_pool = pool

@@ -117,12 +117,20 @@ class Hero(metaclass=hero_parsers):
     @cached_property
     def uni_name(self):
         return f'{self.name}@{self.pack}'
-
-    def dump(self, file_path: str):
+    
+    def __getstate__(self):
         '''cached_property 是个mapping_proxy 无法dump 所以需要先移除
         '''
+        d = self.__dict__
         if isinstance(self, parser.Parser):
-            del self.alias_mapper, self.hps
+            d = d.copy()
+            if 'alias_mapper' in d:
+                del d['alias_mapper']
+            if 'hps' in d:
+                del d['hps']
+        return d
+
+    def dump(self, file_path: str):
         if not file_path.endswith('.pickle'):
             file_path += self.uni_name + '.pickle'
         with open(file_path, 'wb') as wf:

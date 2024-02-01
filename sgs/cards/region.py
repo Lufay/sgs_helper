@@ -3,7 +3,7 @@ import random
 
 from ..role import Role
 from .card import Card
-from ..heros.hero import Camp
+from ..heros.hero import Camp, Hero
 from ..room import Room
 
 
@@ -51,7 +51,7 @@ class CardHeapMgr:
         if room_id in self.card_heap_map:
             return self.card_heap_map[room_id]
         else:
-            ch = CardHeap()
+            ch = CardHeap(ins.room.collection)
             self.card_heap_map[room_id] = ch
             return ch
     
@@ -67,7 +67,8 @@ class UserRole:
     user_id: str
     role: Role
     room: Room
-    hero_id: str = ''
+    hero_name: str = ''
+    hero_pack: str = ''
     hp: int = 0
     hp_max: int = 0
     camp: Camp = Camp.UNKNOWN
@@ -80,3 +81,11 @@ class UserRole:
 
     def __post_init__(self):
         self.own_region = list(self.card_heap.pop(4))
+
+    def set_hero(self, hero: Hero):
+        self.hero_name = hero.name
+        self.hero_pack = hero.pack
+        self.hp = hero.hp
+        self.hp_max = hero.hp_max
+        self.camp = hero.camp
+        self.gender = hero.gender
